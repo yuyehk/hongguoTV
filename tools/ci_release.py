@@ -7,6 +7,8 @@ from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
 import zipfile
+import urllib.request
+import urllib.parse
 
 CERTIFICATE = '76e72e760843107a1640ad8544fe46b5772e28fa00b8708ba414d5173ea3c9fa'
 
@@ -58,10 +60,60 @@ def verify_ci_binding(payload_report, actual_report, unsigned_apk, signed_apk):
     if contents(unsigned_apk)!=contents(signed_apk):
         raise ValueError('Signed APK does not contain the actual CI-built application')
 
+def pick_draft(releases, tag, source):
+    candidates=[r for r in releases if r['tag_name']==tag or
+                (r.get('draft') and r['tag_name'].startswith('untagged-') and
+                 r.get('target_commitish')==source and tag[1:] in r.get('name',''))]
+    if not candidates:return None
+    if len(candidates)!=1:raise ValueError('Ambiguous release drafts')
+    draft=candidates[0]
+    if draft.get('draft') is not True or draft.get('target_commitish')!=source:
+        raise ValueError('Existing published release or different-source draft cannot be overwritten')
+    return draft
+
+def missing_assets(assets, files):
+    present={x['name']:x for x in assets};expected={p.name:p for p in files}
+    if len(present)!=len(assets) or set(present)-set(expected):raise ValueError('Unexpected release assets')
+    for name,asset in present.items():
+        data=expected[name].read_bytes()
+        if asset['size']!=len(data) or asset.get('digest')!='sha256:'+hashlib.sha256(data).hexdigest():
+            raise ValueError('Existing draft asset does not match verified payload')
+    return [p for name,p in expected.items() if name not in present]
+
+def publish_release(folder):
+    repo=os.environ['GITHUB_REPOSITORY'];tag=os.environ['RELEASE_TAG'];source=os.environ['SOURCE_SHA']
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+',repo):raise ValueError('Invalid repository')
+    def api(method,path,body=None,binary=None):
+        url='https://api.github.com/'+path if not path.startswith('https://') else path
+        if urllib.parse.urlparse(url).hostname not in {'api.github.com','uploads.github.com'}:raise ValueError('Unexpected API host')
+        headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'User-Agent':'hongguotv-release','Accept':'application/vnd.github+json'}
+        data=json.dumps(body).encode() if body is not None else binary
+        if data is not None:headers['Content-Type']='application/json' if body is not None else 'application/octet-stream'
+        with urllib.request.urlopen(urllib.request.Request(url,data=data,headers=headers,method=method),timeout=120) as response:return json.load(response)
+    endpoint='repos/'+repo+'/releases';folder=Path(folder)
+    files=[p for p in folder.iterdir() if p.name!='NOTES.md' and p.is_file()]
+    draft=pick_draft(api('GET',endpoint+'?per_page=100'),tag,source)
+    if draft is None:
+        draft=api('POST',endpoint,dict(tag_name=tag,target_commitish=source,name='红果 TV '+os.environ['VERSION_NAME'],body=(folder/'NOTES.md').read_text(encoding='utf8'),draft=True))
+    for file in missing_assets(draft['assets'],files):
+        upload=draft['upload_url'].split('{')[0]+'?name='+urllib.parse.quote(file.name,safe='')
+        api('POST',upload,binary=file.read_bytes())
+    current=api('GET',endpoint+'/'+str(draft['id']))
+    if current.get('draft') is not True or missing_assets(current['assets'],files):raise ValueError('Draft verification incomplete')
+    published=api('PATCH',endpoint+'/'+str(draft['id']),dict(tag_name=tag,draft=False,make_latest='true'))
+    if published['draft'] or missing_assets(published['assets'],files):raise ValueError('Publication verification failed')
+    (folder/'published-release.json').write_text(json.dumps(published,indent=2),encoding='utf8')
+    print(published['html_url'])
+    if os.environ.get('GITHUB_STEP_SUMMARY'):
+        with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf8') as stream:stream.write('Published: '+published['html_url']+'\n')
+
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('command',choices=['summarize','payload','compare']);parser.add_argument('--artifact',type=Path)
+    parser=argparse.ArgumentParser();parser.add_argument('command',choices=['summarize','payload','compare','publish']);parser.add_argument('--artifact',type=Path);parser.add_argument('--output',type=Path)
     args=parser.parse_args()
-    if args.command=='summarize':
+    if args.command=='publish':
+        if not args.output:raise ValueError('Release output directory required')
+        publish_release(args.output)
+    elif args.command=='summarize':
         core=unit_summary('kotlin-tv/core/build/test-results/test')
         app=unit_summary('kotlin-tv/app/build/test-results/testDebugUnitTest')
         issues=ET.parse('kotlin-tv/app/build/reports/lint-results-debug.xml').getroot().findall('issue')
