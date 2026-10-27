@@ -37,7 +37,7 @@ android {
         getByName("debug") {
             if (System.getenv("HONGGUOTV_SIGN_DEBUG") == "1") signingConfig = signingConfigs.getByName("delivery")
         }
-        getByName("release") { signingConfig = signingConfigs.getByName("delivery"); isMinifyEnabled = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") }
+        getByName("release") { signingConfig = if (System.getenv("HONGGUOTV_UNSIGNED_RELEASE") == "1") null else signingConfigs.getByName("delivery"); isMinifyEnabled = true; proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro") }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17; isCoreLibraryDesugaringEnabled = true }
     kotlinOptions { jvmTarget = "17" }

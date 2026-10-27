@@ -1,0 +1,130 @@
+name: Android APK build and release
+
+on:
+  push:
+    branches: [main, 'codex/release-*']
+    paths: ['kotlin-tv/**', 'tools/ci_release.py', 'tests/test_ci_release.py', '.github/workflows/android-release.yml', '.release/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          packages: platform-tools
+      - name: Install SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Release guard tests
+        run: python3 -m unittest discover -s tests -p test_ci_release.py -v
+      - name: Unit tests, lint and unsigned minified Release
+        env:
+          HONGGUOTV_UNSIGNED_RELEASE: '1'
+          HONGGUOTV_TEST_MAVEN_CACHE: /home/runner/.m2/repository
+        run: ./kotlin-tv/gradlew -p kotlin-tv --no-daemon --max-workers=2 -Dorg.gradle.jvmargs='-Xmx2g -Dfile.encoding=UTF-8' -Pkotlin.compiler.execution.strategy=in-process :core:test :app:testDebugUnitTest :app:lintDebug :app:assembleRelease --console=plain
+      - name: Verify build output
+        run: python3 tools/ci_release.py summarize
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: android14-release-unsigned
+          retention-days: 14
+          path: |
+            kotlin-tv/app/build/outputs/apk/release/*unsigned.apk
+            release-output/build-verification.json
+            kotlin-tv/core/build/reports/tests/test/
+            kotlin-tv/app/build/reports/tests/testDebugUnitTest/
+            kotlin-tv/app/build/reports/lint-results-debug.*
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/codex/release-')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          packages: platform-tools
+      - run: sdkmanager 'build-tools;36.0.0'
+      - name: Validate signed payload and successful source build
+        run: |
+          set -euo pipefail
+          python3 tools/ci_release.py payload
+      - name: Check source build and APK identity
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" > /tmp/build-run.json
+          python3 - <<'PY'
+          import json,os
+          r=json.load(open('/tmp/build-run.json'))
+          assert r['conclusion']=='success' and r['head_sha']==os.environ['SOURCE_SHA']
+          assert r['head_branch']=='main' and r['repository']['full_name']==os.environ['GITHUB_REPOSITORY']
+          assert r['path']=='.github/workflows/android-release.yml'
+          PY
+          gh run download "$BUILD_RUN_ID" --repo "$GITHUB_REPOSITORY" --name android14-release-unsigned --dir "$RUNNER_TEMP/actual-build"
+          python3 tools/ci_release.py compare --artifact "$RUNNER_TEMP/actual-build"
+          tools="$ANDROID_HOME/build-tools/36.0.0"
+          "$tools/apksigner" verify --print-certs "$APK_FILE" > /tmp/apk-certificate.txt
+          grep -Fx "Signer #1 certificate SHA-256 digest: $CERT_SHA256" /tmp/apk-certificate.txt
+          "$tools/aapt" dump badging "$APK_FILE" > /tmp/apk-badging.txt
+          grep -F "package: name='com.hongguotv.nativeapp' versionCode='$VERSION_CODE' versionName='$VERSION_NAME'" /tmp/apk-badging.txt
+          if grep -q 'application-debuggable' /tmp/apk-badging.txt; then exit 1; fi
+          git cat-file -e "$SOURCE_SHA^{commit}"
+          if git rev-parse --verify "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$SOURCE_SHA"
+          fi
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Release already exists; refusing to overwrite'; exit 1
+          fi
+      - name: Prepare source, checksums and release notes
+        run: |
+          set -euo pipefail
+          mkdir -p release-output
+          cp "$APK_FILE" "release-output/$APK_NAME"
+          cp .release/build-verification.json release-output/build-verification.json
+          git archive --format=zip --prefix=hongguotv-source/ --output="release-output/hongguotv-$VERSION_NAME-source.zip" "$SOURCE_SHA"
+          cd release-output
+          sha256sum "$APK_NAME" "hongguotv-$VERSION_NAME-source.zip" build-verification.json > SHA256SUMS
+          printf '%s\n' "Android 14 定制版 $VERSION_NAME" '' '右上角登录按钮/头像统一账号功能，最多保存10个账号。保留自动连播、手动换集优化和本机记录，设置页及更新模块不恢复。' '' '由 GitHub Actions 从源码编译并通过单元测试和 Lint；使用原证书在本机签名，私钥未上传到 GitHub。' '' "源码提交：https://github.com/$GITHUB_REPOSITORY/commit/$SOURCE_SHA" "打包记录：https://github.com/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" > NOTES.md
+      - name: Create draft and verify assets before publishing
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --draft --title "红果 TV $VERSION_NAME" --notes-file release-output/NOTES.md release-output/*.apk release-output/*source.zip release-output/SHA256SUMS release-output/build-verification.json
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > /tmp/release-draft.json
+          python3 - <<'PY'
+          import json,os,hashlib,pathlib
+          release=json.load(open('/tmp/release-draft.json')); assert release['draft']
+          assets={x['name']:x for x in release['assets']}
+          files=[p for p in pathlib.Path('release-output').iterdir() if p.name!='NOTES.md']
+          assert set(assets)=={p.name for p in files}
+          for p in files:
+              assert assets[p.name]['size']==p.stat().st_size
+              assert assets[p.name]['digest']=='sha256:'+hashlib.sha256(p.read_bytes()).hexdigest()
+          PY
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
