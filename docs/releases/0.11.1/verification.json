@@ -1,0 +1,52 @@
+{
+  "versionName": "0.11.1-android14-accounts",
+  "versionCode": 15,
+  "applicationId": "com.hongguotv.nativeapp",
+  "apkBytes": 3296367,
+  "apkSha256": "34def02ea65e417e6648fad6a730e879fc3b5d7a041b5ef6417a4a0c12bb19e2",
+  "sameSigningCertificate": true,
+  "certificateSha256": "76e72e760843107a1640ad8544fe46b5772e28fa00b8708ba414d5173ea3c9fa",
+  "sourceFiles": 294,
+  "sourceBytes": 6017939,
+  "verification": {
+    "core": {
+      "tests": 272,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "app": {
+      "tests": 199,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "lintErrors": [],
+    "api34": {
+      "api": 34,
+      "passed": 21,
+      "failed": 0,
+      "skipped": 0,
+      "currentProcessFatal": false,
+      "emulator": "emulator-5570",
+      "fixtureDecoder": "system-software-priority",
+      "resolution": "960x540"
+    },
+    "releasePlayback": {
+      "firstFrame": true,
+      "nextEpisodeFirstFrame": true,
+      "fatalException": false,
+      "processAlive": true,
+      "decoderMode": "AUTO",
+      "realAccountLogin": false
+    },
+    "upgrade": {
+      "from": "0.11.0-release",
+      "to": "0.11.1-release",
+      "sameDeviceIdentity": true,
+      "favoritesRetained": true,
+      "progressRetained": true,
+      "apkSha256": "34def02ea65e417e6648fad6a730e879fc3b5d7a041b5ef6417a4a0c12bb19e2"
+    }
+  }
+}

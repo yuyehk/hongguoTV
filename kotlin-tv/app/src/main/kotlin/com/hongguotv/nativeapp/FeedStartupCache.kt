@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: GPL-3.0-only
+package com.hongguotv.nativeapp
+
+import android.content.Context
+import com.hongguotv.core.CatalogPage
+import com.hongguotv.core.FeedStartupSnapshot
+
+/** One account scope, three sources; accessed by feed workers, never the UI thread. */
+internal class FeedStartupCache(
+    context: Context,
+    private val clock: () -> Long = System::currentTimeMillis,
+) {
+    private val app = context.applicationContext
+    private val prefs by lazy {
+        app.getSharedPreferences("native-feed-startup-v1", Context.MODE_PRIVATE)
+    }
+
+    companion object {
+        private val lock = Any()
+    }
+
+    private fun owner(identity: String) {
+        if (prefs.getString("owner", null) != identity)
+            prefs.edit().clear().putString("owner", identity).apply()
+    }
+
+    fun load(identity: String, source: String): CatalogPage? =
+        runCatching {
+                synchronized(lock) {
+                    owner(identity)
+                    val raw = prefs.getString(source, null) ?: return@synchronized null
+                    FeedStartupSnapshot.decode(raw, clock()).also {
+                        if (it == null) prefs.edit().remove(source).apply()
+                    }
+                }
+            }
+            .getOrNull()
+
+    fun save(identity: String, source: String, page: CatalogPage) {
+        runCatching {
+            synchronized(lock) {
+                owner(identity)
+                val value = FeedStartupSnapshot.encode(page, clock())
+                if (value.length <= 200_000) prefs.edit().putString(source, value).apply()
+            }
+        }
+    }
+}

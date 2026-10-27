@@ -1,0 +1,10 @@
+<network-security-config>
+    <!-- User-imported media and LAN sources may use HTTP. Official account endpoints stay HTTPS. -->
+    <base-config cleartextTrafficPermitted="true"/>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">fqnovel.com</domain>
+        <domain includeSubdomains="true">snssdk.com</domain>
+        <domain includeSubdomains="true">hongguoduanju.com</domain>
+    </domain-config>
+    <domain-config cleartextTrafficPermitted="true"><domain includeSubdomains="true">douyinvod.com</domain><domain includeSubdomains="true">byteicdn.com</domain><domain includeSubdomains="true">byteimg.com</domain></domain-config>
+</network-security-config>
