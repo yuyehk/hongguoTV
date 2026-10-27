@@ -1,0 +1,10 @@
+{
+  "tag": "v0.11.1",
+  "sourceSha": "a53f47cbb7a8c0fd813957cf3d1596fe8875c8e8",
+  "buildRunId": 40465967403,
+  "apk": "hongguotv-0.11.1-android14-accounts.apk",
+  "apkSha256": "4ec3a85f8ad9ea9332e3cdf3dfd3ba499b17940f0735ad5cdef57edfbae1abee",
+  "certificateSha256": "76e72e760843107a1640ad8544fe46b5772e28fa00b8708ba414d5173ea3c9fa",
+  "versionName": "0.11.1-android14-accounts",
+  "versionCode": 15
+}
