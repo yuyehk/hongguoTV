@@ -70,4 +70,20 @@ class ReleaseGuardTest(unittest.TestCase):
             with self.assertRaises(ValueError):release.verify_ci_binding({**report,'sourceSha':'b'*40},report,apk,apk)
             with self.assertRaises(ValueError):release.verify_ci_binding({**report,'unsignedApkSha256':'0'*64},{**report,'unsignedApkSha256':'0'*64},apk,apk)
 
+    def test_draft_is_selected_by_id_without_a_published_tag(self):
+        draft={'id':7,'tag_name':'v0.11.1','target_commitish':'a'*40,'draft':True}
+        self.assertEqual(7,release.pick_draft([draft],'v0.11.1','a'*40)['id'])
+        for bad in [{**draft,'draft':False},{**draft,'target_commitish':'b'*40}]:
+            with self.assertRaises(ValueError):release.pick_draft([bad],'v0.11.1','a'*40)
+        with self.assertRaises(ValueError):release.pick_draft([draft,draft],'v0.11.1','a'*40)
+
+    def test_existing_release_assets_must_match_before_resume(self):
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'app.apk';p.write_bytes(b'verified')
+            asset={'name':p.name,'size':p.stat().st_size,'digest':'sha256:'+hashlib.sha256(p.read_bytes()).hexdigest()}
+            self.assertEqual([],release.missing_assets([asset],[p]))
+            self.assertEqual([p],release.missing_assets([],[p]))
+            with self.assertRaises(ValueError):release.missing_assets([{**asset,'digest':'sha256:'+'0'*64}],[p])
+            with self.assertRaises(ValueError):release.missing_assets([{**asset,'name':'unrelated.apk'}],[p])
+
 if __name__ == '__main__':unittest.main()

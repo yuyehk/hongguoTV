@@ -99,9 +99,6 @@ jobs:
           if git rev-parse --verify "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
             test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$SOURCE_SHA"
           fi
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo 'Release already exists; refusing to overwrite'; exit 1
-          fi
       - name: Prepare source, checksums and release notes
         run: |
           set -euo pipefail
@@ -115,16 +112,4 @@ jobs:
       - name: Create draft and verify assets before publishing
         run: |
           set -euo pipefail
-          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$SOURCE_SHA" --draft --title "红果 TV $VERSION_NAME" --notes-file release-output/NOTES.md release-output/*.apk release-output/*source.zip release-output/SHA256SUMS release-output/build-verification.json
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" > /tmp/release-draft.json
-          python3 - <<'PY'
-          import json,os,hashlib,pathlib
-          release=json.load(open('/tmp/release-draft.json')); assert release['draft']
-          assets={x['name']:x for x in release['assets']}
-          files=[p for p in pathlib.Path('release-output').iterdir() if p.name!='NOTES.md']
-          assert set(assets)=={p.name for p in files}
-          for p in files:
-              assert assets[p.name]['size']==p.stat().st_size
-              assert assets[p.name]['digest']=='sha256:'+hashlib.sha256(p.read_bytes()).hexdigest()
-          PY
-          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          python3 tools/ci_release.py publish --output release-output
