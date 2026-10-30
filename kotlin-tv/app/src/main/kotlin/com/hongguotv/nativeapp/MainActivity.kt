@@ -55,6 +55,8 @@ class MainActivity : Activity() {
     private data class QueuedEpisode(val index: Int,val key: String,val remote: RemoteVideo,
         val http: okhttp3.OkHttpClient,val preparedAt: Long,val opened: OpenedStream? = null)
     private var queuedNext: QueuedEpisode?=null
+    // A claimed speculative stream still needs an owner if resolution is cancelled before adoption.
+    private var pendingPrepared: Pair<RemoteVideo,okhttp3.OkHttpClient?>?=null
     private val bufferingHint=Runnable {
         if (showReceiveIndicator()) {
             playerView?.setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
@@ -2712,6 +2714,7 @@ class MainActivity : Activity() {
         if (!applyingAutomaticSkip && !recovering && !autoDowngrade) incompatibleSkips.rendered()
         receiveRate.reset()
         val data=detail ?: return
+        discardPendingPrepared()
         val playbackStarted=android.os.SystemClock.elapsedRealtime()
         val reuse=screen=="player" && player!=null && playerView!=null && !recovering && !playError
         library.setWatched(data.series.id,false)
@@ -2729,12 +2732,12 @@ class MainActivity : Activity() {
             cancelRecovery(); cancelPrefetch(); tvTools.close()
             episodePanel?.dismiss(); episodePanel=null; speedDialog?.dismiss(); speedDialog=null
             playerListener?.let { player?.removeListener(it) }; playerListener=null
-            player?.stop(); player?.clearMediaItems()
-            video?.close(); video=null; closeTransport(playbackHttp); playbackHttp=null
+            // Keep the old surface/decoder and last frame while the new URL resolves. Stopping and
+            // clearing here created a network-length empty interval even with keepContent enabled.
+            player?.pause()
             main.removeCallbacks(hideHud); main.removeCallbacks(seekRunnable); pendingSeek=null
         } else releasePlayer()
         artwork.cancelPage(clearMemory=true)
-        playbackHttp=claimedHttp; video=prefetched
         var firstReady=true; var firstFrame=true
         var currentId=data.episodes[selectedIndex]; var itemStarted=playbackStarted; var itemDuration=0L
         if(!recovering) recovery.reset()
@@ -2744,7 +2747,7 @@ class MainActivity : Activity() {
         panel=false; playError=false; playbackReady=false; quality=""; pausedForLifecycle=!autoplay
         attemptedQuality=0; currentTrack=null; currentRendition=null; currentTiers=emptyList()
         if(!autoDowngrade) autoDowngrades=0
-        player?.playWhenReady=requestedAutoplay
+        if(!reuse) player?.playWhenReady=requestedAutoplay
         prefetchAttempts=0; prefetchAttemptAt=0
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if(!reuse) {
@@ -2776,8 +2779,13 @@ class MainActivity : Activity() {
         updateBufferingIndicator()
         syncMediaSession()
         val requestedId=data.episodes[episodeIndex]; val maxQuality=library.maxQuality; val ticket=generation
+        pendingPrepared=prefetched?.let { it to claimedHttp }
+        android.util.Log.i("HongguoTV","Episode resolve episode=${episodeIndex+1} prepared=${prefetched!=null} retainedFrame=$reuse")
         work({ queuedClaim?.opened ?: prefetched?.let { OpenedStream(it,null,emptyList(),it.trackInfo()) } ?: openStream(repository.http,repository,requestedId,maxQuality,CodecCapabilities::supports) { it==null || CodecCapabilities.supports(it) } ?: throw IncompatibleEpisodeException("没有电视可播放的编码或清晰度") }, { opened ->
             val remote=opened.video
+            val previousVideo=video; val previousHttp=playbackHttp
+            if(pendingPrepared?.first===remote) pendingPrepared=null
+            playbackHttp=claimedHttp
             video=remote; quality=playedQualityLabel(opened,maxQuality)
             attemptedQuality=opened.rendition?.quality ?: 0; currentTrack=opened.track; currentRendition=opened.rendition; currentTiers=opened.tiers
             val p=player ?: run {
@@ -2830,7 +2838,7 @@ class MainActivity : Activity() {
                 override fun onPlaybackParametersChanged(parameters: PlaybackParameters) { if(active()) syncMediaSession() }
                 override fun onPlayWhenReadyChanged(playWhenReady: Boolean,reason: Int) {
                     if(!active()) return
-                    if(!playWhenReady) cancelPrefetch(resetBudget=true)
+                    if(!playWhenReady) cancelPrefetch(resetBudget=true,keepQueued=episodePanel!=null)
                     updateBufferingIndicator(); syncMediaSession()
                 }
                 override fun onPlaybackSuppressionReasonChanged(reason: Int) {
@@ -2893,7 +2901,9 @@ class MainActivity : Activity() {
             playerListener=listener; p.addListener(listener)
             val source=mediaSource(remote,requestedId)
             p.setMediaSource(source); p.seekTo(position.coerceAtLeast(0)); p.prepare(); p.playWhenReady=foreground && requestedAutoplay && !pausedForLifecycle && episodePanel==null
-        }, { problem -> playerFailure(problem) })
+            if(previousVideo!==remote) previousVideo?.close()
+            if(previousHttp!==claimedHttp) closeTransport(previousHttp)
+        }, { problem -> discardPendingPrepared(); playerFailure(problem) })
     }
     private fun playQueuedEpisode(index: Int,position: Long,autoplay: Boolean,recovering: Boolean): Boolean {
         val data=detail ?: return false; val p=player ?: return false; val queued=queuedNext ?: return false
@@ -2922,6 +2932,11 @@ class MainActivity : Activity() {
         // Closing an idle TLS connection can write close_notify; keep it off the UI thread.
         networkCleanup.execute { http.dispatcher.cancelAll(); http.connectionPool.evictAll(); http.dispatcher.executorService.shutdown() }
     }
+    private fun discardPendingPrepared() {
+        val pending=pendingPrepared ?: return
+        pendingPrepared=null
+        pending.first.close(); closeTransport(pending.second)
+    }
     private fun updateBufferingIndicator() {
         main.removeCallbacks(bufferingHint)
         playerView?.setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
@@ -2932,8 +2947,9 @@ class MainActivity : Activity() {
         if (!foreground || screen != "player" || playError || episodePanel != null ||
             !requestedAutoplay || pausedForLifecycle || sleepStopped) return false
         val p = player ?: return !playbackReady
-        return p.playWhenReady && p.playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE &&
-            (!playbackReady || p.playbackState == Player.STATE_BUFFERING)
+        return !playbackReady || (p.playWhenReady &&
+            p.playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE &&
+            p.playbackState == Player.STATE_BUFFERING)
     }
     private fun mediaSource(remote: RemoteVideo,id: String) = ProgressiveMediaSource.Factory {
         VideoDataSource(remote) {
@@ -2959,11 +2975,11 @@ class MainActivity : Activity() {
         }
         queued.remote.close(); closeTransport(queued.http)
     }
-    private fun cancelPrefetch(resetBudget: Boolean=false) {
+    private fun cancelPrefetch(resetBudget: Boolean=false,keepQueued: Boolean=false) {
         prefetchScope?.cancel(); prefetchScope=null
         preparedNext.clear(); prefetchJob?.cancel(true); prefetchJob=null
         closeTransport(prefetchHttp); prefetchHttp=null; prefetchedFor=""
-        discardQueuedEpisode()
+        if(!keepQueued) discardQueuedEpisode()
         if(resetBudget) { prefetchAttempts=0; prefetchAttemptAt=0 }
     }
     private fun maybePrefetch() {
@@ -3189,7 +3205,7 @@ class MainActivity : Activity() {
     private fun autoSkipIncompatible(problem: Throwable): Boolean {
         if (!incompatibleFailure(problem) || !foreground || screen != "player" ||
             !requestedAutoplay || pausedForLifecycle || sleepStopped || episodePanel != null ||
-            player?.playWhenReady == false) return false
+            (playbackReady && player?.playWhenReady == false)) return false
         if (sleepTimer.poll()) { stopForSleep(); return true }
         if (!sleepTimer.canContinueAfter(0)) return false
         val data = detail ?: return false
@@ -3228,7 +3244,7 @@ class MainActivity : Activity() {
         if (!playbackReady) {
             playbackText.text =
                 (if (!requestedAutoplay) "准备后保持暂停 · " else "") +
-                    (if (video == null) "正在获取播放地址…" else "正在缓冲…") + " · 接收 ${receiveRate.label()}"
+                    (if (player?.currentMediaItem?.mediaId != detail?.episodes?.getOrNull(episodeIndex)) "正在获取播放地址…" else "正在缓冲…") + " · 接收 ${receiveRate.label()}"
             return
         }
         val p = player ?: return
@@ -3254,16 +3270,19 @@ class MainActivity : Activity() {
         if(play) sleepStopped=false
         if(!play) { cancelPrefetch(); player?.pause(); retryAutoplay=false; saveProgress() }
         else if(playError) { playEpisode(episodeIndex,retryPosition,true); return }
-        else if(episodePanel==null) { if(player?.playbackState==Player.STATE_ENDED) player?.seekTo(0); player?.play() }
+        else if(episodePanel==null && player?.currentMediaItem?.mediaId==detail?.episodes?.getOrNull(episodeIndex)) {
+            if(player?.playbackState==Player.STATE_ENDED) player?.seekTo(0)
+            player?.play()
+        }
         if(!play) window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         showHud(); updatePlaybackText(); syncMediaSession(); if(panel && episodePanel==null) showPanel()
     }
 
-    private fun togglePlayback() =
-        requestPlayback(
-            !(if (playbackReady) player?.playWhenReady ?: requestedAutoplay else requestedAutoplay)
-        )
+    private fun playbackIntent(): Boolean =
+        if(playbackReady) player?.playWhenReady ?: requestedAutoplay else requestedAutoplay
+
+    private fun togglePlayback() = requestPlayback(!playbackIntent())
 
     private fun seekTo(position: Long) {
         val p=player ?: return; if(!playbackReady || p.duration<=0) return
@@ -3288,10 +3307,11 @@ class MainActivity : Activity() {
         val state =
             when {
                 playError -> android.media.session.PlaybackState.STATE_ERROR
-                sleepStopped || !requestedAutoplay || (p != null && !p.playWhenReady) ->
+                sleepStopped || !requestedAutoplay ->
                     android.media.session.PlaybackState.STATE_PAUSED
                 p == null || !playbackReady || p.playbackState == Player.STATE_BUFFERING ->
                     android.media.session.PlaybackState.STATE_BUFFERING
+                !p.playWhenReady -> android.media.session.PlaybackState.STATE_PAUSED
                 p.playbackState == Player.STATE_ENDED ->
                     android.media.session.PlaybackState.STATE_STOPPED
                 p.isPlaying -> android.media.session.PlaybackState.STATE_PLAYING
@@ -3534,7 +3554,7 @@ class MainActivity : Activity() {
                         playEpisode(
                             episodeIndex,
                             currentPosition(),
-                            player?.playWhenReady ?: requestedAutoplay,
+                            playbackIntent(),
                         )
                 }
                 .setNegativeButton("取消", null)
@@ -3548,8 +3568,7 @@ class MainActivity : Activity() {
         if (episodePanel != null) return
         val ticket = generation
         val overlayWasVisible = hud.visibility == View.VISIBLE
-        requestedAutoplay = player?.playWhenReady ?: requestedAutoplay
-        player?.pause()
+        requestedAutoplay = playbackIntent()
         saveProgress()
         var resumeOnClose = true
         val next =
@@ -3571,7 +3590,8 @@ class MainActivity : Activity() {
                 {
                     episodePanel = null
                     if (resumeOnClose && foreground && generation == ticket && screen == "player") {
-                        if (requestedAutoplay && !sleepStopped && !pausedForLifecycle)
+                        if (requestedAutoplay && !sleepStopped && !pausedForLifecycle &&
+                            player?.currentMediaItem?.mediaId == data.episodes.getOrNull(episodeIndex))
                             player?.play()
                         if (anchor.isAttachedToWindow) anchor.requestFocus()
                         if (overlayWasVisible) showHud() else hidePlaybackOverlay()
@@ -3584,6 +3604,9 @@ class MainActivity : Activity() {
                 lastCompleted = library.progress(data.series.id)?.completed == true,
             )
         episodePanel = next
+        // Set the owner before pause callbacks run, so only unfinished speculation is cancelled.
+        cancelPrefetch(resetBudget=true,keepQueued=true)
+        player?.pause()
         next.show()
     }
 
@@ -3633,6 +3656,7 @@ class MainActivity : Activity() {
     private fun releasePlayer() {
         restoreHoldSpeed()
         social.reset()
+        discardPendingPrepared()
         cancelRecovery(); cancelPrefetch(); mediaSession.deactivate(); tvTools.close()
         val wasForeground=foreground; foreground=false
         val oldPanel=episodePanel; episodePanel=null; oldPanel?.dismiss(); foreground=wasForeground
@@ -3828,7 +3852,7 @@ class MainActivity : Activity() {
         when (screen) {
             "player" -> {
                 val position = currentPosition()
-                val autoplay = player?.playWhenReady == true && !pausedForLifecycle
+                val autoplay = playbackIntent() && !pausedForLifecycle
                 playEpisode(episodeIndex, position, autoplay)
             }
             "detail" -> if (detail != null) showDetail(false)

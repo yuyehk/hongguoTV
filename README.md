@@ -1,17 +1,18 @@
 # 红果 TV · Android 14 定制版
 
-当前版本：**0.11.1-android14-accounts**（versionCode 15）。面向小米电视 S85 Mini LED / Android 14，源码位于 [`kotlin-tv/`](kotlin-tv/)。
+当前源码版本：**0.11.2-android14-transitions**（versionCode 16）。面向小米电视 S85 Mini LED / Android 14，源码位于 [`kotlin-tv/`](kotlin-tv/)。安装包以 Releases 中已发布版本为准。
 
 [下载 Releases](https://github.com/yuyehk/hongguoTV/releases) · [Actions 打包记录](https://github.com/yuyehk/hongguoTV/actions/workflows/android-release.yml)
 
 ## 本版本功能
 
+- 修复选集面板丢弃已预载下一集、未预载切集提前清空画面的问题；慢网等待保留上一帧并暂停旧集声音，保留正确的播放意图、定时停止和错误提示。
 - 右上角未登录显示“登录”，登录后显示头像；头像菜单统一提供云端记录、刷新、退出、新增、切换与管理账号，最多保存 10 个账号。
 - 使用 Android Keystore 加密账号；保留旧登录态迁移，并隔离不同账号的云端记录与待上传进度。
 - 保留单播放器换集预加载、自动连播和手动下一集优化，以及本机收藏、观看进度、定时停止和异常提示。
 - 保留之前移植的片源、搜索、预约、评论、外观、备份等功能；设置页及应用内更新模块不恢复。
 
-详见 [多账号说明](kotlin-tv/MULTI_ACCOUNT.md)、[完整功能说明](kotlin-tv/FEATURE_COMPLETION.md)、[功能移植说明](kotlin-tv/FEATURE_PORT.md)。
+详见 [0.11.2 换集修复说明](kotlin-tv/EPISODE_TRANSITIONS_0_11_2.md)、[多账号说明](kotlin-tv/MULTI_ACCOUNT.md)、[完整功能说明](kotlin-tv/FEATURE_COMPLETION.md)、[功能移植说明](kotlin-tv/FEATURE_PORT.md)。
 
 ## 构建与验证
 

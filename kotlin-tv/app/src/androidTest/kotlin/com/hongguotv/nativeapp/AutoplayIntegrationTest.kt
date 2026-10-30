@@ -160,6 +160,20 @@ class AutoplayIntegrationTest {
         MainActivity::class.java.getDeclaredMethod("skipEpisode",Int::class.javaPrimitiveType)
             .apply { isAccessible=true }.invoke(activity,1)
     }
+    private fun displayedLuminance(): Double {
+        val bitmap=android.graphics.Bitmap.createBitmap(48,27,android.graphics.Bitmap.Config.ARGB_8888)
+        val done=java.util.concurrent.CountDownLatch(1)
+        val status=AtomicInteger(-1)
+        ui {
+            val surface=(field("playerView") as androidx.media3.ui.PlayerView).videoSurfaceView as android.view.SurfaceView
+            android.view.PixelCopy.request(surface,bitmap,{ result -> status.set(result);done.countDown() },android.os.Handler(android.os.Looper.getMainLooper()))
+        }
+        assertTrue("Surface copy must finish",done.await(3,java.util.concurrent.TimeUnit.SECONDS))
+        assertEquals(android.view.PixelCopy.SUCCESS,status.get())
+        val pixels=IntArray(bitmap.width*bitmap.height);bitmap.getPixels(pixels,0,bitmap.width,0,0,bitmap.width,bitmap.height)
+        bitmap.recycle()
+        return pixels.map { (android.graphics.Color.red(it)+android.graphics.Color.green(it)+android.graphics.Color.blue(it))/3.0 }.average()
+    }
     @Test fun manualNextUsesTheQueuedPlayerWithoutResettingIt() {
         val player=start(); waitFor { player.mediaItemCount==2 }
         Thread.sleep(800)
@@ -225,6 +239,116 @@ class AutoplayIntegrationTest {
         assertNull(ui { field("queuedNext") })
         ui { skipNext() }
         waitFor { field("episodeIndex")==1 && player.currentMediaItem?.mediaId=="1002" && player.isPlaying }
+        assertNull(ui { player.playerError })
+    }
+    @Test fun episodePickerRetainsTheAlreadyPreparedSuccessor() {
+        val player=start(longCurrent=true)
+        waitFor { player.mediaItemCount==2 }
+        val queued=ui { field("queuedNext") }
+        val idle=AtomicInteger()
+        ui {
+            player.addListener(object:Player.Listener {
+                override fun onPlaybackStateChanged(state:Int) { if(state==Player.STATE_IDLE) idle.incrementAndGet() }
+            })
+            MainActivity::class.java.getDeclaredMethod("showEpisodePanel",android.view.View::class.java)
+                .apply { isAccessible=true }.invoke(activity,field("hud") as android.view.View)
+        }
+        Thread.sleep(300)
+        assertFalse(ui { player.playWhenReady })
+        assertSame("Opening the picker must retain a completed next episode",queued,ui { field("queuedNext") })
+        assertEquals(2,ui { player.mediaItemCount })
+        ui { (field("episodePanel") as EpisodePanel).dismiss(); skipNext() }
+        waitFor { field("episodeIndex")==1 && player.isPlaying }
+        assertEquals("Picker selection must use the prepared playlist without resetting",0,idle.get())
+        assertNull(ui { player.playerError })
+    }
+    @Test fun unresolvedManualNextKeepsTheDisplayedMediaAndStopsOldAudio() {
+        val player=start(delayNextMillis=2500,longCurrent=true)
+        waitFor { player.isPlaying && player.currentPosition>400 }
+        val before=displayedLuminance()
+        assertTrue("The fixture must have a visible frame",before>15)
+        // Switch before speculative preparation starts, forcing the network fallback.
+        assertNull(ui { field("queuedNext") })
+        val oldVideo=ui { field("video") }
+        val idle=AtomicInteger()
+        ui {
+            player.addListener(object:Player.Listener {
+                override fun onPlaybackStateChanged(state:Int) { if(state==Player.STATE_IDLE) idle.incrementAndGet() }
+            })
+            skipNext()
+            assertEquals("Retain old media until the new source exists", "1001",player.currentMediaItem?.mediaId)
+            assertSame("Retain old stream ownership until replacement",oldVideo,field("video"))
+            assertFalse("The previous episode must not keep playing during resolution",player.playWhenReady)
+            assertFalse(field("playbackReady") as Boolean)
+        }
+        assertTrue(warmupStarted.await(5,java.util.concurrent.TimeUnit.SECONDS))
+        Thread.sleep(350)
+        assertEquals("1001",ui { player.currentMediaItem?.mediaId })
+        val during=displayedLuminance()
+        assertTrue("The retained surface must not turn black during address resolution",during>before/2)
+        android.util.Log.i("AutoplayTest","Retained frame luminance before=$before during=$during")
+        assertEquals("There must be no explicit stop/clear interval",0,idle.get())
+        val history=ui { (field("library") as Library).snapshot().history.single { it.series.id=="1000" } }
+        assertEquals("1001",history.episodeId)
+        assertEquals(0,history.episodeIndex)
+        waitFor { field("episodeIndex")==1 && player.currentMediaItem?.mediaId=="1002" && player.isPlaying }
+        assertNull(ui { player.playerError })
+    }
+    @Test fun openingPickerDuringResolutionPreservesTheRequestedPlaybackIntent() {
+        val player=start(delayNextMillis=3000,longCurrent=true)
+        ui { skipNext() }
+        assertTrue(warmupStarted.await(5,java.util.concurrent.TimeUnit.SECONDS))
+        ui {
+            MainActivity::class.java.getDeclaredMethod("showEpisodePanel",android.view.View::class.java)
+                .apply { isAccessible=true }.invoke(activity,field("hud") as android.view.View)
+            assertEquals("A retained paused surface is not the user's pause intent",true,field("requestedAutoplay"))
+            (field("episodePanel") as EpisodePanel).dismiss()
+            assertFalse("Closing the picker cannot resume the retained old episode",player.playWhenReady)
+        }
+        waitFor { player.currentMediaItem?.mediaId=="1002" && player.isPlaying }
+        assertFalse(ui { field("playError") as Boolean })
+    }
+    @Test fun pauseAndResumeDuringResolutionCannotRestartTheOldEpisode() {
+        val player=start(delayNextMillis=3000,longCurrent=true)
+        ui { skipNext() }
+        assertTrue(warmupStarted.await(5,java.util.concurrent.TimeUnit.SECONDS))
+        ui {
+            val request=MainActivity::class.java.getDeclaredMethod("requestPlayback",Boolean::class.javaPrimitiveType).apply { isAccessible=true }
+            request.invoke(activity,false)
+            assertFalse(player.playWhenReady)
+            request.invoke(activity,true)
+            assertTrue(field("requestedAutoplay") as Boolean)
+            assertFalse("A play command applies to the requested new source, not the retained frame",player.playWhenReady)
+        }
+        waitFor { player.currentMediaItem?.mediaId=="1002" && player.isPlaying }
+        assertNull(ui { player.playerError })
+    }
+    @Test fun incompatiblePendingEpisodeStillUsesTheEnabledAutomaticSkipPolicy() {
+        val player=start(delayNextMillis=3000,longCurrent=true)
+        ui {
+            FeaturePreferences(instrumentation.targetContext).autoSkipIncompatible=true
+            skipNext()
+        }
+        assertTrue(warmupStarted.await(5,java.util.concurrent.TimeUnit.SECONDS))
+        ui {
+            MainActivity::class.java.getDeclaredMethod("playerFailure",Throwable::class.java).apply { isAccessible=true }
+                .invoke(activity,IncompatibleStreamException())
+            assertEquals("Retaining a paused old frame must not suppress the enabled codec skip policy",2,field("episodeIndex"))
+            assertFalse(field("playError") as Boolean)
+        }
+        waitFor { player.currentMediaItem?.mediaId=="1003" && player.isPlaying }
+        assertNull(ui { player.playerError })
+    }
+    @Test fun configurationChangeDuringResolutionPreservesPlaybackIntent() {
+        val player=start(delayNextMillis=3000,longCurrent=true)
+        ui { skipNext() }
+        assertTrue(warmupStarted.await(5,java.util.concurrent.TimeUnit.SECONDS))
+        ui {
+            activity!!.onConfigurationChanged(android.content.res.Configuration(activity!!.resources.configuration))
+            assertEquals(true,field("requestedAutoplay"))
+            assertFalse(player.playWhenReady)
+        }
+        waitFor { player.currentMediaItem?.mediaId=="1002" && player.isPlaying }
         assertNull(ui { player.playerError })
     }
     @Test fun speculativeSamplesRespectTheSharedAllocatorTarget() {

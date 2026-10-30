@@ -108,7 +108,7 @@ jobs:
           git archive --format=zip --prefix=hongguotv-source/ --output="release-output/hongguotv-$VERSION_NAME-source.zip" "$SOURCE_SHA"
           cd release-output
           sha256sum "$APK_NAME" "hongguotv-$VERSION_NAME-source.zip" build-verification.json > SHA256SUMS
-          printf '%s\n' "Android 14 定制版 $VERSION_NAME" '' '右上角登录按钮/头像统一账号功能，最多保存10个账号。保留自动连播、手动换集优化和本机记录，设置页及更新模块不恢复。' '' '由 GitHub Actions 从源码编译并通过单元测试和 Lint；使用原证书在本机签名，私钥未上传到 GitHub。' '' "源码提交：https://github.com/$GITHUB_REPOSITORY/commit/$SOURCE_SHA" "打包记录：https://github.com/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" > NOTES.md
+          printf '%s\n' "Android 14 定制版 $VERSION_NAME" '' '修复选集丢弃已预载下一集、未预载切集提前清空画面的问题；等待新资源时保留上一帧并停止旧集声音，保留正确的播放意图和不兼容编码跳集策略。' '' '右上角登录按钮/头像统一账号功能，最多保存10个账号。保留自动连播、手动换集优化和本机记录，设置页及更新模块不恢复。' '' '由 GitHub Actions 从源码编译并通过单元测试和 Lint；使用原证书在本机签名，私钥未上传到 GitHub。' '' "源码提交：https://github.com/$GITHUB_REPOSITORY/commit/$SOURCE_SHA" "打包记录：https://github.com/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" > NOTES.md
       - name: Create draft and verify assets before publishing
         run: |
           set -euo pipefail
