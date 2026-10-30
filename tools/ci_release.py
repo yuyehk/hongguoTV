@@ -28,7 +28,7 @@ def validate_payload(data, folder):
             raise ValueError(f'Invalid {key}')
     match('sourceSha',r'[0-9a-f]{40}')
     match('tag',r'v\d+\.\d+\.\d+')
-    match('versionName',r'\d+\.\d+\.\d+-android14-accounts')
+    match('versionName',r'\d+\.\d+\.\d+-android14-(?:accounts|transitions)')
     match('apkSha256',r'[0-9a-f]{64}')
     if data['tag'] != 'v'+data['versionName'].split('-')[0] or data['certificateSha256'] != CERTIFICATE:
         raise ValueError('Version tag or signing certificate mismatch')

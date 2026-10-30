@@ -24,6 +24,17 @@ class ReleaseGuardTest(unittest.TestCase):
             folder=Path(d); data=self.payload(folder)
             self.assertEqual(data, release.validate_payload(data,folder))
 
+    def test_transition_release_name_is_supported_without_relaxing_metadata(self):
+        with tempfile.TemporaryDirectory() as d:
+            folder=Path(d);data=self.payload(folder)
+            data.update(tag='v0.11.2',versionName='0.11.2-android14-transitions',versionCode=16,
+                        apk='hongguotv-0.11.2-android14-transitions.apk')
+            (folder/data['apk']).write_bytes(b'synthetic APK bytes')
+            self.assertEqual(data,release.validate_payload(data,folder))
+            for version in ['0.11.2-android14-other','0.11.2-android14-transitions\nBAD=1']:
+                with self.subTest(version=version),self.assertRaises(ValueError):
+                    release.validate_payload({**data,'versionName':version},folder)
+
     def test_rejects_path_env_injection_and_wrong_certificate(self):
         with tempfile.TemporaryDirectory() as d:
             folder=Path(d); data=self.payload(folder)
