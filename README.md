@@ -1,11 +1,12 @@
 # 红果 TV · Android 14 定制版
 
-当前源码版本：**0.11.2-android14-transitions**（versionCode 16）。面向小米电视 S85 Mini LED / Android 14，源码位于 [`kotlin-tv/`](kotlin-tv/)。安装包以 Releases 中已发布版本为准。
+当前源码版本：**0.11.3-android14-transitions**（versionCode 17）。面向小米电视 S85 Mini LED / Android 14，源码位于 [`kotlin-tv/`](kotlin-tv/)。安装包以 Releases 中已发布版本为准。
 
 [下载 Releases](https://github.com/yuyehk/hongguoTV/releases) · [Actions 打包记录](https://github.com/yuyehk/hongguoTV/actions/workflows/android-release.yml)
 
 ## 本版本功能
 
+- 片源只返回固定的 ByteVC2 文件时，向同一片源请求一次兼容编码。已验证《祁教授，借个婚可好》第一集可取得标准 H.265 资源。
 - 修复选集面板丢弃已预载下一集、未预载切集提前清空画面的问题；慢网等待保留上一帧并暂停旧集声音，保留正确的播放意图、定时停止和错误提示。
 - 右上角未登录显示“登录”，登录后显示头像；头像菜单统一提供云端记录、刷新、退出、新增、切换与管理账号，最多保存 10 个账号。
 - 使用 Android Keystore 加密账号；保留旧登录态迁移，并隔离不同账号的云端记录与待上传进度。

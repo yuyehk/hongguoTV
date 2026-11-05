@@ -10,6 +10,7 @@ import java.util.concurrent.TimeUnit
 import okhttp3.Cookie
 import okhttp3.CookieJar
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -756,6 +757,25 @@ class ContentRepository(
         val info =
             JSONObject(text(fallback)).optJSONObject("video_info")?.optJSONObject("data")
                 ?: throw IOException("没有播放资源")
+        return try {
+            legacyStreamLadder(info)
+        } catch (unsupported: IncompatibleStreamException) {
+            // Some models pin every definition to ByteVC2 file IDs even when compatible HEVC
+            // encodes exist. Negotiate once on the supplied URL, preserving its authorization
+            // and video identity. Ordinary/malformed/network responses never take this path.
+            val url = fallback.toHttpUrl()
+            if (url.queryParameter("force_fids").isNullOrBlank() ||
+                url.queryParameter("codec_type") != "4") throw unsupported
+            val compatible = url.newBuilder().removeAllQueryParameters("force_fids")
+                .setQueryParameter("codec_type", "1").build()
+            val alternate = JSONObject(text(compatible.toString())).optJSONObject("video_info")
+                ?.optJSONObject("data") ?: throw IOException("没有播放资源")
+            // Parse the alternate's own URLs/keys and validate codecs again; never recurse.
+            legacyStreamLadder(alternate)
+        }
+    }
+
+    private fun legacyStreamLadder(info: JSONObject): StreamLadder {
         val videoList = info.optJSONObject("video_list") ?: throw IOException("没有可用清晰度")
         // ByteVC2 resources can expose playable audio but no video track in Android's MP4
         // extractor.
