@@ -1,0 +1,10 @@
+{
+  "tag": "v0.11.9",
+  "sourceSha": "cc93773fa7063f380fc774246fcaae827d8f8283",
+  "buildRunId": 43691093427,
+  "apk": "hongguotv-0.11.9-android14-transitions.apk",
+  "apkSha256": "1886035c96fb6ee77ac03ba697507d5d7eaa0d8c3181d1730b7115acd5b15698",
+  "certificateSha256": "76e72e760843107a1640ad8544fe46b5772e28fa00b8708ba414d5173ea3c9fa",
+  "versionName": "0.11.9-android14-transitions",
+  "versionCode": 23
+}
