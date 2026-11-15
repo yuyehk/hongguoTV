@@ -18,7 +18,7 @@ import java.util.concurrent.Executors
 
 /**
  * Isolated optional functions inspired by the public jycao2/hongguoTV fork. Function-specific
- * dialogs only: no settings page, updater, telemetry, optional source traffic or account writes.
+ * dialogs only, with dedicated controllers for app updates and other system interactions.
  */
 class FeatureTools(
     private val activity: Activity,
@@ -35,6 +35,8 @@ class FeatureTools(
     private val onRestoreBackup: ((LocalFeatureBackup) -> Unit)? = null,
     private val portableExtras: (() -> Pair<String, String>)? = null,
     private val onCacheManage: (() -> Unit)? = null,
+    private val onAppUpdate: () -> Unit = {},
+    private val updateDiagnostics: () -> String = { "尚无更新检查结果。" },
 ) {
     val preferences = FeaturePreferences(activity)
     private val main = Handler(Looper.getMainLooper())
@@ -110,7 +112,7 @@ class FeatureTools(
         val series = currentSeries
         choose("实用工具", listOf(
             if (series == null) "按剧片头片尾 / 收藏分组" else "当前剧 · ${series.title}",
-            "收藏分组", "备份与恢复", "遥控器快捷键", "本机观看统计", "内容接口诊断", "显示外观", "随机推荐", "自定义片源（${sources.store.sources().size}）", "电视桌面续播", "清理缓存",
+            "收藏分组", "备份与恢复", "遥控器快捷键", "本机观看统计", "内容接口诊断", "显示外观", "随机推荐", "自定义片源（${sources.store.sources().size}）", "电视桌面续播", "清理缓存", "检查应用更新", "更新检查记录",
         ) + if (onSeasonUpdates != null) listOf("追剧 · 下一季") else emptyList()) { index -> when (index) {
             0 -> if (series != null) showSeries(series) else chooseSeries()
             1 -> groupsMenu()
@@ -123,7 +125,9 @@ class FeatureTools(
             8 -> { close(); sources.show() }
             9 -> { close(); onDesktopChannel() }
             10 -> { close(); onCacheManage?.invoke() }
-            11 -> { close(); onSeasonUpdates?.invoke() }
+            11 -> { close(); onAppUpdate() }
+            12 -> info("更新检查记录", updateDiagnostics())
+            13 -> { close(); onSeasonUpdates?.invoke() }
         } }
     }
     private fun chooseSeries() {

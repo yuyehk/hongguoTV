@@ -108,7 +108,11 @@ jobs:
           git archive --format=zip --prefix=hongguotv-source/ --output="release-output/hongguotv-$VERSION_NAME-source.zip" "$SOURCE_SHA"
           cd release-output
           sha256sum "$APK_NAME" "hongguotv-$VERSION_NAME-source.zip" build-verification.json > SHA256SUMS
-          printf '%s\n' "Android 14 定制版 $VERSION_NAME" '' '修复部分剧集仅返回固定 ByteVC2 文件导致无法播放的问题。应用会向同一片源请求一次兼容资源，并继续使用原有单播放器自动连播、手动换集及本机记录。' '' '由 GitHub Actions 从源码编译并通过单元测试和 Lint，使用原证书在本机签名。' '' "源码提交：https://github.com/$GITHUB_REPOSITORY/commit/$SOURCE_SHA" "打包记录：https://github.com/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" > NOTES.md
+          printf '%s\n' "Android 14 定制版 $VERSION_NAME" '' > NOTES.md
+          if [[ "$VERSION_NAME" == '0.11.9-android14-transitions' ]]; then
+            printf '%s\n' '发现新版后会在回到首页时提示。更新检查遇到临时网络故障会重试一次，可在工具菜单查看最近检查的时间和结果。' '' >> NOTES.md
+          fi
+          printf '%s\n' '由 GitHub Actions 从源码编译并通过单元测试和 Lint，使用原证书在本机签名。' '' "源码提交：https://github.com/$GITHUB_REPOSITORY/commit/$SOURCE_SHA" "打包记录：https://github.com/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" >> NOTES.md
       - name: Create draft and verify assets before publishing
         run: |
           set -euo pipefail

@@ -1,6 +1,6 @@
 # 红果 TV 原生独立版
 
-本地功能移植版 **0.10.0-android14-features**：以小米电视 S85 Mini LED / Android 14 为主要目标，接入搜索键盘与联想、分类筛选、多榜单、分季追剧、扫码账户、评论弹幕、可选预览、解码适配、片头片尾、分组、备份与自定义片源。保留原有搜索兜底、单播放器快速换集、定时停止、包名、签名和随机设备 ID。设置页和应用内更新继续移除。功能入口及验证边界见 [FEATURE_PORT.md](FEATURE_PORT.md)。
+当前版本 **0.11.9-android14-transitions**。打开应用时后台检查新版，遇到临时网络故障会重试一次。发现新版时在首页提示，也可从「工具」手动检查或查看最近检查记录。下载安装由系统安装器确认。以小米电视 S85 Mini LED / Android 14 为主要目标，历史移植说明见 [FEATURE_PORT.md](FEATURE_PORT.md)。
 
 这是独立的 **Kotlin + Android 原生 View + Media3** 工程。Android 14 是本轮运行验证目标；清单最低版本暂保留 API 23，但旧系统不是本轮交付验收目标。安装一个 APK，联网后可直接浏览和播放，无需部署 Node、Docker 或填写服务器地址。
 
@@ -10,11 +10,11 @@
 - 本次可覆盖安装本地 0.9.x 同签名版本，保留本机收藏、观看进度和设备身份；红果账号资料与本机资料分开。
 - APK 不含 JNI 库，可由 Android 在 ARM32、ARM64、x86、x86_64 上运行；视频解码能力依赖设备。
 - 源码分支：`codex/kotlin-standalone`。
-- [下载正式签名 APK](https://github.com/N3urda/hongguoTV-updates/releases/latest)
+- [下载正式签名 APK](https://github.com/yuyehk/hongguoTV/releases/latest)
 
 0.2.1 修复简介与设置切换后的焦点跳转，并适配放大字号的卡片高度。可直接覆盖安装 0.2.0，保留收藏和观看记录；见 [交付与验证记录](DELIVERY.md)。
 
-旧版本历史说明（其中的设置页、应用内更新已经在本地版本移除）：
+原上游版本历史说明：
 
 ## 0.9.0 新增
 

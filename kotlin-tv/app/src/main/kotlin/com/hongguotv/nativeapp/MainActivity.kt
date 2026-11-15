@@ -406,6 +406,7 @@ class MainActivity : Activity() {
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
         librarySources = LibrarySources(this)
         library = Library(this)
+        appUpdater = AppUpdateController(this)
         featureTools = FeatureTools(this, library, repository,
             openSeries = { openToolSeries(it) },
             onPlaySource = ::openUserSource,
@@ -421,6 +422,8 @@ class MainActivity : Activity() {
             onRestoreBackup = { backup -> backupController.preview(backup) },
             portableExtras = { SourceLibraryBackup(this).exportState() to appearance.exportState() },
             onCacheManage = { featureTools.showCache(artwork) },
+            onAppUpdate = { appUpdater.show() },
+            updateDiagnostics = { appUpdater.diagnostics() },
         )
         favoriteSeasons = FavoriteSeasonStore(this)
         TvStyle.apply(featureTools.theme)
@@ -911,6 +914,7 @@ class MainActivity : Activity() {
         }
         invalidatePage()
         screen = "catalog"
+        main.post { showPendingAppUpdate() }
         releaseCatalogViews()
         val container = base()
         if (tab != 0 && foreground && library.isLoaded && !favoriteMonitor.running)
@@ -2781,7 +2785,7 @@ class MainActivity : Activity() {
         val requestedId=data.episodes[episodeIndex]; val maxQuality=library.maxQuality; val ticket=generation
         pendingPrepared=prefetched?.let { it to claimedHttp }
         android.util.Log.i("HongguoTV","Episode resolve episode=${episodeIndex+1} prepared=${prefetched!=null} retainedFrame=$reuse")
-        work({ queuedClaim?.opened ?: prefetched?.let { OpenedStream(it,null,emptyList(),it.trackInfo()) } ?: openStream(repository.http,repository,requestedId,maxQuality,CodecCapabilities::supports) { it==null || CodecCapabilities.supports(it) } ?: throw IncompatibleEpisodeException("没有电视可播放的编码或清晰度") }, { opened ->
+        work({ queuedClaim?.opened ?: prefetched?.let { OpenedStream(it,null,emptyList(),it.trackInfo()) } ?: openStream(repository.http,repository,requestedId,maxQuality,CodecCapabilities::supports,episodeWindow=data.episodes) { it==null || CodecCapabilities.supports(it) } ?: throw IncompatibleEpisodeException("没有电视可播放的编码或清晰度") }, { opened ->
             val remote=opened.video
             val previousVideo=video; val previousHttp=playbackHttp
             if(pendingPrepared?.first===remote) pendingPrepared=null
@@ -3005,12 +3009,12 @@ class MainActivity : Activity() {
         val http=repository.http.newBuilder().dispatcher(okhttp3.Dispatcher()).connectionPool(okhttp3.ConnectionPool())
             .connectTimeout(8,java.util.concurrent.TimeUnit.SECONDS).readTimeout(15,java.util.concurrent.TimeUnit.SECONDS)
             .callTimeout(20,java.util.concurrent.TimeUnit.SECONDS).build()
-        val source=ContentRepository(http); prefetchHttp=http
+        val source=repository.withPlaybackTransport(http); prefetchHttp=http
         val scope=RequestScope(); prefetchScope=scope
         prefetchJob=prefetchWorker.submit {
             var remote: RemoteVideo?=null
             try {
-                val opened=scope.run { openStream(http,source,id,quality,CodecCapabilities::supports) { it==null || CodecCapabilities.supports(it) } ?: throw java.io.IOException("没有可预载的资源") }
+                val opened=scope.run { openStream(http,source,id,quality,CodecCapabilities::supports,episodeWindow=data.episodes) { it==null || CodecCapabilities.supports(it) } ?: throw java.io.IOException("没有可预载的资源") }
                 val prepared=scope.run { opened.video.also { remote=it; it.warm() } }
                 if(preparedNext.complete(ticket,key,prepared)) main.post {
                     if(!foreground || generation!=pageTicket || player!==p || episodeIndex!=fromEpisode ||
@@ -3114,6 +3118,9 @@ class MainActivity : Activity() {
         saveProgress()
         cancelRecovery()
         cancelPrefetch()
+        if (problem is PlaybackException && problem.errorCode in 2000..2999) {
+            detail?.episodes?.getOrNull(episodeIndex)?.let(repository::invalidatePlaybackModel)
+        }
         // The device claimed support it doesn't have (MediaCodecList over-reporting): learn the
         // runtime verdict and retry one tier lower automatically instead of surfacing the panel.
         if (
@@ -3152,11 +3159,13 @@ class MainActivity : Activity() {
         panel = true
         val decoding = incompatibleFailure(problem)
         val retryable =
-            if (decoding) false else if (problem is PlaybackException)
+            if (decoding || problem is PlaybackRegistrationDeferredException) false else if (problem is PlaybackException)
                 problem.errorCode in 2000..2999 ||
                     problem.errorCode == PlaybackException.ERROR_CODE_TIMEOUT
             else problem is java.io.IOException
-        playbackText.text = if (decoding) {
+        playbackText.text = if (problem is PlaybackRegistrationDeferredException) {
+            problem.message
+        } else if (decoding) {
             if (incompatibleSkips.count >= 5) "已连续跳过5集，自动跳过已停止；可手动选择其他集。"
             else "电视不支持当前视频编码，可尝试更低清晰度或跳过这集。"
         } else "播放失败，可重试或切换清晰度。"
@@ -3860,6 +3869,23 @@ class MainActivity : Activity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        appUpdater.checkOnOpen(::canPromptAppUpdate)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) main.post { showPendingAppUpdate() }
+    }
+
+    private fun canPromptAppUpdate() =
+        foreground && screen == "catalog" && tab == 0 && library.isLoaded && hasWindowFocus()
+
+    private fun showPendingAppUpdate() {
+        if (::appUpdater.isInitialized) appUpdater.showPendingUpdate(::canPromptAppUpdate)
+    }
+
     override fun onResume() {
         super.onResume()
         foreground = true
@@ -3923,6 +3949,7 @@ class MainActivity : Activity() {
 
     // 应用离开前台时暂停播放及后台活动，防止页面不可见时继续消耗资源。
     override fun onStop() {
+        appUpdater.cancelBackgroundCheck()
         if (::featureTools.isInitialized) featureTools.close()
         if (::appearance.isInitialized) appearance.close()
         if (::backupController.isInitialized) backupController.close()
@@ -4074,9 +4101,12 @@ class MainActivity : Activity() {
         }
     }
 
-    @Deprecated("Used for the system folder picker")
+    private lateinit var appUpdater: AppUpdateController
+
+    @Deprecated("Used for system activity results")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (::appUpdater.isInitialized && appUpdater.onActivityResult(requestCode)) return
         if (requestCode == 7115) {
             if (resultCode == RESULT_OK) data?.data?.let { appearance.onImagePicked(it) }
             return
@@ -4118,6 +4148,7 @@ class MainActivity : Activity() {
         favoriteMonitor.destroy()
         tvTools.destroy()
         if (::featureTools.isInitialized) featureTools.destroy()
+        if (::appUpdater.isInitialized) appUpdater.destroy()
         if (::appearance.isInitialized) appearance.destroy()
         if (::backupController.isInitialized) backupController.destroy()
         exitDialog?.dismiss()

@@ -1,5 +1,12 @@
 # 原生版第三方声明
 
+播放五头签名参考 jycao2/hongguoTV 的 13aa8e7 提交（GPL-3.0-only），算法源自
+LanZhan-Harmony/PhoenixReadApi 的 SignPlayer（Copyright (c) 2026 LanZhan，MIT）。
+完整 MIT 声明位于 app/src/main/assets/licenses/PhoenixReadApi-MIT.txt，并随 APK 打包。
+
+- https://github.com/jycao2/hongguoTV/commit/13aa8e7222d6894b921db14b0bc6106762f54ff9
+- https://github.com/LanZhan-Harmony/PhoenixReadApi
+
 `core` 中内容请求签名、Spade URL / key 处理、MP4 CENC 处理是以下 GPL-3.0 源码的 Kotlin 移植：
 
 - drpys, `spider/js/红果果[短].js`

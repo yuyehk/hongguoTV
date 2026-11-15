@@ -168,11 +168,10 @@ class UpstreamContentRepositoryTest {
         val requests = mutableListOf<Request>()
         val repo = repository { request ->
             requests += request
-            """{"Code":110001}"""
+            """{"code":0,"data":{"123":{"video_model":{"video_list":[{"main_url":"https://example.com/123.mp4","video_meta":{"codec_type":"h265","vwidth":1280,"vheight":720,"definition":"720p"},"encrypt_info":{"encrypt":false}}]}}}}"""
         }
         repeat(2) {
-            val error = assertThrows(IOException::class.java) { repo.stream("123") }
-            assertTrue(error.message.orEmpty().contains("110001"))
+            assertEquals("https://example.com/123.mp4", repo.stream("123").url)
         }
         for (request in requests) {
             assertEquals("POST", request.method)

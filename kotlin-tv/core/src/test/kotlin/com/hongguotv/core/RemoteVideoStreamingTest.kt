@@ -2,6 +2,10 @@
 package com.hongguotv.core
 
 import java.io.IOException
+import com.sun.net.httpserver.HttpServer
+import java.net.InetSocketAddress
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import okhttp3.*
 import okhttp3.ResponseBody.Companion.toResponseBody
 import okio.buffer
@@ -9,6 +13,81 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RemoteVideoStreamingTest {
+    @Test
+    fun suspendedPreloadCanResumeAfterTheCallLifetimeBudget() {
+        val file = fixture()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/video") { exchange ->
+            val (start, requested) = exchange.requestHeaders.getFirst("Range")
+                .removePrefix("bytes=").split('-').map(String::toInt)
+            val end = minOf(file.lastIndex, requested)
+            exchange.responseHeaders.add("Content-Range", "bytes $start-$end/${file.size}")
+            exchange.sendResponseHeaders(206, (end - start + 1).toLong())
+            exchange.responseBody.use { it.write(file, start, end - start + 1) }
+        }
+        server.start()
+        val http = OkHttpClient.Builder().callTimeout(1, TimeUnit.SECONDS)
+            .readTimeout(3, TimeUnit.SECONDS).build()
+        try {
+            RemoteVideo(http, StreamInfo("http://127.0.0.1:${server.address.port}/video", null, "测试"))
+                .use { video ->
+                    video.prepare()
+                    val start = 300 * 1024
+                    val length = 512 * 1024
+                    video.openRead(start.toLong(), length).use { reader ->
+                        val initial = reader.read(ByteArray(16 * 1024))
+                        assertTrue(initial > 0)
+                        Thread.sleep(1500)
+                        assertArrayEquals(file.copyOfRange(start + initial, start + length), reader.readBytes())
+                    }
+                }
+        } finally {
+            server.stop(0)
+            http.connectionPool.evictAll()
+            http.dispatcher.executorService.shutdownNow()
+        }
+    }
+
+    @Test
+    fun streamingSocketStillTimesOutWhenTheServerStopsSending() {
+        val file = fixture()
+        val release = CountDownLatch(1)
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/video") { exchange ->
+            val (start, requested) = exchange.requestHeaders.getFirst("Range")
+                .removePrefix("bytes=").split('-').map(String::toInt)
+            val end = minOf(file.lastIndex, requested)
+            exchange.responseHeaders.add("Content-Range", "bytes $start-$end/${file.size}")
+            exchange.sendResponseHeaders(206, (end - start + 1).toLong())
+            exchange.responseBody.use { output ->
+                if (start == 0) output.write(file, start, end - start + 1)
+                else {
+                    output.write(file[start].toInt())
+                    output.flush()
+                    release.await(3, TimeUnit.SECONDS)
+                }
+            }
+        }
+        server.start()
+        val http = OkHttpClient.Builder().callTimeout(1, TimeUnit.SECONDS)
+            .readTimeout(250, TimeUnit.MILLISECONDS).build()
+        try {
+            RemoteVideo(http, StreamInfo("http://127.0.0.1:${server.address.port}/video", null, "测试"))
+                .use { video ->
+                    video.prepare()
+                    video.openRead(300 * 1024L, 512 * 1024).use { reader ->
+                        assertEquals(file[300 * 1024].toInt() and 255, reader.read())
+                        assertThrows(java.net.SocketTimeoutException::class.java) { reader.read() }
+                    }
+                }
+        } finally {
+            release.countDown()
+            server.stop(0)
+            http.connectionPool.evictAll()
+            http.dispatcher.executorService.shutdownNow()
+        }
+    }
+
     @Test
     fun smallStartupProbeFetchesOnlyTheCompleteIndexBeforeHandOff() {
         val file = fixture(48 * 1024)
