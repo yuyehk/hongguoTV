@@ -3158,12 +3158,17 @@ class MainActivity : Activity() {
         controls.visibility = View.VISIBLE
         panel = true
         val decoding = incompatibleFailure(problem)
+        val officialPage = if (problem is EmptyContentResponse) {
+            detail?.let { officialEpisodePage(it.series.id, it.episodes.getOrNull(episodeIndex)) }
+        } else null
         val retryable =
-            if (decoding || problem is PlaybackRegistrationDeferredException) false else if (problem is PlaybackException)
+            if (officialPage != null || decoding || problem is PlaybackRegistrationDeferredException) false else if (problem is PlaybackException)
                 problem.errorCode in 2000..2999 ||
                     problem.errorCode == PlaybackException.ERROR_CODE_TIMEOUT
             else problem is java.io.IOException
-        playbackText.text = if (problem is PlaybackRegistrationDeferredException) {
+        playbackText.text = if (officialPage != null) {
+            "取流接口未返回视频。可使用官网播放本集。"
+        } else if (problem is PlaybackRegistrationDeferredException) {
             problem.message
         } else if (decoding) {
             if (incompatibleSkips.count >= 5) "已连续跳过5集，自动跳过已停止；可手动选择其他集。"
@@ -3171,8 +3176,13 @@ class MainActivity : Activity() {
         } else "播放失败，可重试或切换清晰度。"
         val actions = row()
         controls.addView(actions)
-        addButton(actions, "立即重试") { playEpisode(episodeIndex, retryPosition, retryAutoplay) }
-            .requestFocus()
+        val officialButton = officialPage?.let { page ->
+            addButton(actions, "官网播放") {
+                startActivity(OfficialWebPlaybackActivity.intent(this, page))
+            }
+        }
+        val retryButton = addButton(actions, "立即重试") { playEpisode(episodeIndex, retryPosition, retryAutoplay) }
+        (officialButton ?: retryButton).requestFocus()
         nextLowerQuality(if (attemptedQuality > 0) attemptedQuality else library.maxQuality)?.let {
             lower ->
             addButton(actions, "尝试 ${lower}P") {

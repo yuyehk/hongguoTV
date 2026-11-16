@@ -1,10 +1,12 @@
 # 红果 TV · Android 14 定制版
 
-当前源码版本：**0.11.9-android14-transitions**（versionCode 23）。面向小米电视 S85 Mini LED / Android 14，源码位于 [`kotlin-tv/`](kotlin-tv/)。安装包以实际交付的签名包为准。
+当前源码版本：**0.11.10-android14-transitions**（versionCode 24）。面向小米电视 S85 Mini LED / Android 14，源码位于 [`kotlin-tv/`](kotlin-tv/)。安装包以实际交付的签名包为准。
 
 [下载 Releases](https://github.com/yuyehk/hongguoTV/releases) · [Actions 打包记录](https://github.com/yuyehk/hongguoTV/actions/workflows/android-release.yml)
 
 ## 本版本功能
+
+- 原生取流返回空响应时，可从失败页面选择「官网播放」，用遥控器方向键移动光标、确认键点击。官网自己的登录与播放规则仍适用。
 
 - 播放接入当前五头签名与 video_tab 取流，前台播放及下一集预载复用匿名设备身份；格式异常可有界回退，不可用模型可在重试时重新获取。
 - 修复预载等待或暂停期间的分段连接整体超时，支持恢复读取；实际网络读取超时和关闭取消仍生效。

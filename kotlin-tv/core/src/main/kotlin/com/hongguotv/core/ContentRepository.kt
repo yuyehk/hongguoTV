@@ -155,7 +155,7 @@ class IncompatibleStreamException : IOException("没有电视可播放的清晰�
 
 class SearchSessionExpiredException : IOException("搜索结果已过期，请从第 1 页重新搜索")
 
-internal class EmptyContentResponse(message: String = "内容接口返回空响应，请稍后重试") : IOException(message)
+class EmptyContentResponse(message: String = "内容接口返回空响应，请稍后重试") : IOException(message)
 
 private class LegacyPlaybackResponseException(message: String, cause: Throwable? = null) :
     IOException(message, cause)

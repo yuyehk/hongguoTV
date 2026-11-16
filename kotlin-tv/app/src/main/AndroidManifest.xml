@@ -19,6 +19,7 @@
                 <data android:scheme="hongguotv" android:host="series"/>
             </intent-filter>
         </activity>
+        <activity android:name=".OfficialWebPlaybackActivity" android:exported="false" android:screenOrientation="landscape"/>
         <activity android:name=".SourcePlaybackActivity" android:exported="false" android:screenOrientation="landscape" android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|uiMode"/>
     </application>
 </manifest>

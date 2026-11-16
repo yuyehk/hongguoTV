@@ -109,7 +109,9 @@ jobs:
           cd release-output
           sha256sum "$APK_NAME" "hongguotv-$VERSION_NAME-source.zip" build-verification.json > SHA256SUMS
           printf '%s\n' "Android 14 定制版 $VERSION_NAME" '' > NOTES.md
-          if [[ "$VERSION_NAME" == '0.11.9-android14-transitions' ]]; then
+          if [[ "$VERSION_NAME" == '0.11.10-android14-transitions' ]]; then
+            printf '%s\n' '原生取流返回空响应时，可从失败页面使用「官网播放」。遥控器方向键移动光标，确认键点击，网页遵循官网登录与播放规则。' '' >> NOTES.md
+          elif [[ "$VERSION_NAME" == '0.11.9-android14-transitions' ]]; then
             printf '%s\n' '发现新版后会在回到首页时提示。更新检查遇到临时网络故障会重试一次，可在工具菜单查看最近检查的时间和结果。' '' >> NOTES.md
           fi
           printf '%s\n' '由 GitHub Actions 从源码编译并通过单元测试和 Lint，使用原证书在本机签名。' '' "源码提交：https://github.com/$GITHUB_REPOSITORY/commit/$SOURCE_SHA" "打包记录：https://github.com/$GITHUB_REPOSITORY/actions/runs/$BUILD_RUN_ID" >> NOTES.md
