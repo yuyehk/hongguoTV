@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 package com.hongguotv.nativeapp
 
+import com.hongguotv.core.EmptyContentResponse
+import java.net.SocketTimeoutException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -8,6 +10,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OfficialWebPlaybackTest {
+    @Test fun onlyEmptyPlaybackResponsesSelectTheInPageFallback() {
+        val series = "7707078673207151678"
+        val episode = "7707465250475346969"
+        assertEquals(
+            "https://hongguoduanju.com/player/$series/$episode",
+            officialPlaybackFallback(EmptyContentResponse(), series, episode),
+        )
+        assertNull(officialPlaybackFallback(SocketTimeoutException(), series, episode))
+        assertNull(officialPlaybackFallback(EmptyContentResponse(), series, null))
+    }
+
     @Test fun opensTheExactEpisodeOnTheOfficialWebsite() {
         assertEquals(
             "https://hongguoduanju.com/player/7707078673207151678/7707465250475346969",

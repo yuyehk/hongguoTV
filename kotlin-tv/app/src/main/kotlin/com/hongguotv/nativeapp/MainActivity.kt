@@ -265,6 +265,7 @@ class MainActivity : Activity() {
     private var group = 0
     private var synopsisExpanded = false
     private var player: ExoPlayer? = null
+    private var officialPlayback: OfficialWebPlaybackView? = null
     private var video: RemoteVideo? = null
     private var playbackReady = false
     private var pausedForLifecycle = false
@@ -650,6 +651,7 @@ class MainActivity : Activity() {
     }
 
     private fun invalidatePage() {
+        closeOfficialPlayback()
         generation++
         cancelWork()
         artwork.cancelPage()
@@ -3158,9 +3160,9 @@ class MainActivity : Activity() {
         controls.visibility = View.VISIBLE
         panel = true
         val decoding = incompatibleFailure(problem)
-        val officialPage = if (problem is EmptyContentResponse) {
-            detail?.let { officialEpisodePage(it.series.id, it.episodes.getOrNull(episodeIndex)) }
-        } else null
+        val officialPage = detail?.let {
+            officialPlaybackFallback(problem, it.series.id, it.episodes.getOrNull(episodeIndex))
+        }
         val retryable =
             if (officialPage != null || decoding || problem is PlaybackRegistrationDeferredException) false else if (problem is PlaybackException)
                 problem.errorCode in 2000..2999 ||
@@ -3178,7 +3180,7 @@ class MainActivity : Activity() {
         controls.addView(actions)
         val officialButton = officialPage?.let { page ->
             addButton(actions, "官网播放") {
-                startActivity(OfficialWebPlaybackActivity.intent(this, page))
+                showOfficialPlayback(page)
             }
         }
         val retryButton = addButton(actions, "立即重试") { playEpisode(episodeIndex, retryPosition, retryAutoplay) }
@@ -3215,6 +3217,34 @@ class MainActivity : Activity() {
             "Playback failure: ${problem.javaClass.simpleName}" +
                 (if (problem is PlaybackException) " code=${problem.errorCodeName}" else ""),
         )
+        if (officialPage != null && foreground && retryAutoplay) showOfficialPlayback(officialPage)
+    }
+
+    private fun showOfficialPlayback(page: String) {
+        if (officialPlayback != null) return
+        val view = try {
+            OfficialWebPlaybackView(this, page)
+        } catch (problem: RuntimeException) {
+            playbackText.text = "电视的网页播放器暂时不可用，可重试或返回选集。"
+            android.util.Log.w("HongguoTV", "Official playback unavailable: ${problem.javaClass.simpleName}")
+            return
+        }
+        releasePlayer()
+        hud.visibility = View.GONE
+        root.removeAllViews()
+        root.addView(view, FrameLayout.LayoutParams(-1, -1))
+        officialPlayback = view
+        view.requestFocus()
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        Toast.makeText(this, "官网播放 · 方向键移动光标，确定点击", Toast.LENGTH_LONG).show()
+        android.util.Log.i("HongguoTV", "Official playback attached to current player")
+    }
+
+    private fun closeOfficialPlayback() {
+        val view = officialPlayback ?: return
+        officialPlayback = null
+        root.removeView(view)
+        view.release()
     }
 
     private fun incompatibleFailure(problem: Throwable): Boolean =
@@ -3317,7 +3347,7 @@ class MainActivity : Activity() {
     }
 
     private fun syncMediaSession() {
-        if (!foreground || screen != "player") {
+        if (!foreground || screen != "player" || officialPlayback != null) {
             mediaSession.deactivate()
             return
         }
@@ -3352,8 +3382,12 @@ class MainActivity : Activity() {
         sleepStopped=true; requestedAutoplay=false; retryAutoplay=false; pausedForLifecycle=true
         cancelRecovery(); cancelPrefetch(); player?.pause(); saveProgress()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        playbackText.text="定时停止已生效 · 观看位置已保存 · 按播放可继续"
-        showHud(); if(!playError && episodePanel==null) showPanel(); syncMediaSession()
+        val official = officialPlayback
+        if (official != null) official.pauseMedia()
+        else {
+            playbackText.text="定时停止已生效 · 观看位置已保存 · 按播放可继续"
+            showHud(); if(!playError && episodePanel==null) showPanel(); syncMediaSession()
+        }
         Toast.makeText(this,"定时停止已生效",Toast.LENGTH_LONG).show()
     }
 
@@ -3673,6 +3707,7 @@ class MainActivity : Activity() {
     }
 
     private fun releasePlayer() {
+        closeOfficialPlayback()
         restoreHoldSpeed()
         social.reset()
         discardPendingPrepared()
@@ -3706,6 +3741,10 @@ class MainActivity : Activity() {
     }
 
     private fun goBack() {
+        officialPlayback?.let {
+            if (!it.closeFullscreen()) returnToDetail()
+            return
+        }
         if (!library.isLoaded) {
             showExitConfirmation()
             return
@@ -3781,6 +3820,13 @@ class MainActivity : Activity() {
     override fun onBackPressed() = goBack()
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        officialPlayback?.let {
+            if (event.keyCode == KeyEvent.KEYCODE_BACK) {
+                if (event.action == KeyEvent.ACTION_UP) goBack()
+                return true
+            }
+            return it.handleRemoteKey(event) || super.dispatchKeyEvent(event)
+        }
         if (::featureTools.isInitialized && screen == "player") {
             val action = featureTools.keyAction(event.keyCode)
             if (action != FeatureKeyAction.DEFAULT && event.keyCode in FeaturePreferences.REMOTE_KEYS) {
@@ -3899,6 +3945,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         foreground = true
+        officialPlayback?.resume()
         social.foreground(true)
         main.removeCallbacks(tick)
         main.post(tick)
@@ -3935,6 +3982,7 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
+        officialPlayback?.pause()
         restoreHoldSpeed()
         if (::featureTools.isInitialized) featureTools.preferences.flushStats()
         searchSuggestions?.cancel()

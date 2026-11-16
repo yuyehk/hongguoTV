@@ -2,25 +2,21 @@
 package com.hongguotv.nativeapp
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.content.Context
-import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
-import android.os.Bundle
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
-import android.view.WindowManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
-import android.widget.Toast
+import com.hongguotv.core.EmptyContentResponse
 import java.net.URI
 
 private const val OFFICIAL_PLAYBACK_HOST = "hongguoduanju.com"
@@ -33,6 +29,9 @@ internal fun officialEpisodePage(seriesId: String, episodeId: String?): String? 
     return "https://$OFFICIAL_PLAYBACK_HOST/player/$seriesId/$episodeId"
 }
 
+internal fun officialPlaybackFallback(problem: Throwable, seriesId: String, episodeId: String?): String? =
+    if (problem is EmptyContentResponse) officialEpisodePage(seriesId, episodeId) else null
+
 internal fun isOfficialPlaybackNavigation(url: String): Boolean {
     val uri = runCatching { URI(url) }.getOrNull() ?: return false
     return uri.scheme.equals("https", ignoreCase = true) &&
@@ -40,42 +39,24 @@ internal fun isOfficialPlaybackNavigation(url: String): Boolean {
         uri.userInfo == null && uri.port in listOf(-1, 443)
 }
 
-/** Hosts the normal public website and gives a DPAD remote the same click controls as a mouse. */
-class OfficialWebPlaybackActivity : Activity() {
-    private lateinit var container: FrameLayout
-    private lateinit var cursor: View
-    private var web: WebView? = null
+/** The official player and its remote cursor inside the current playback screen. */
+@SuppressLint("SetJavaScriptEnabled")
+internal class OfficialWebPlaybackView(context: Context, page: String) : FrameLayout(context) {
+    private val cursor: View
+    private val web: WebView
     private var fullscreen: View? = null
     private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
     private var cursorX = Float.NaN
     private var cursorY = Float.NaN
-    private val hideCursor = Runnable { cursor.visibility = View.INVISIBLE }
+    private val hideCursor = Runnable { hideCursorView() }
 
-    @SuppressLint("SetJavaScriptEnabled")
-    @Suppress("DEPRECATION")
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        val page = intent.getStringExtra(EXTRA_PAGE)
-        if (page == null || !isOfficialPlaybackNavigation(page)) {
-            finish()
-            return
-        }
-        val browser = try {
-            WebView(this)
-        } catch (_: RuntimeException) {
-            Toast.makeText(this, "电视的网页组件暂时不可用。", Toast.LENGTH_LONG).show()
-            finish()
-            return
-        }
+    init {
+        require(isOfficialPlaybackNavigation(page))
+        val browser = WebView(context)
         web = browser
-        container = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        window.decorView.systemUiVisibility =
-            View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
-                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-        setContentView(container)
-        container.addView(browser, FrameLayout.LayoutParams(-1, -1))
-        cursor = View(this).apply {
+        setBackgroundColor(Color.BLACK)
+        addView(browser, LayoutParams(-1, -1))
+        cursor = View(context).apply {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
@@ -84,10 +65,11 @@ class OfficialWebPlaybackActivity : Activity() {
             }
             visibility = View.INVISIBLE
         }
-        container.addView(cursor, FrameLayout.LayoutParams(dp(16), dp(16)))
+        addView(cursor, LayoutParams(dp(16), dp(16)))
         browser.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
+            mediaPlaybackRequiresUserGesture = false
             useWideViewPort = true
             loadWithOverviewMode = true
             allowFileAccess = false
@@ -114,18 +96,17 @@ class OfficialWebPlaybackActivity : Activity() {
                 }
                 fullscreen = view
                 fullscreenCallback = callback
-                container.addView(view, FrameLayout.LayoutParams(-1, -1))
+                addView(view, LayoutParams(-1, -1))
                 cursor.bringToFront()
             }
 
-            override fun onHideCustomView() = closeFullscreen()
+            override fun onHideCustomView() { closeFullscreen() }
         }
         browser.loadUrl(page)
-        Toast.makeText(this, "官网播放 · 方向键移动光标，确定点击", Toast.LENGTH_LONG).show()
     }
 
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        val target = fullscreen ?: web ?: return super.dispatchKeyEvent(event)
+    fun handleRemoteKey(event: KeyEvent): Boolean {
+        val target = fullscreen ?: web
         val isClick = event.keyCode in setOf(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER)
         val step = dp(if (event.repeatCount > 0) 40 else 30)
         val dx = when (event.keyCode) {
@@ -138,11 +119,11 @@ class OfficialWebPlaybackActivity : Activity() {
             KeyEvent.KEYCODE_DPAD_DOWN -> step
             else -> 0
         }
-        if (!isClick && dx == 0 && dy == 0) return super.dispatchKeyEvent(event)
-        if (event.action != KeyEvent.ACTION_DOWN || container.width <= 0 || container.height <= 0) return true
+        if (!isClick && dx == 0 && dy == 0) return false
+        if (event.action != KeyEvent.ACTION_DOWN || width < 2 || height < 2) return true
         if (cursorX.isNaN()) {
-            cursorX = container.width / 2f
-            cursorY = container.height / 2f
+            cursorX = width / 2f
+            cursorY = height / 2f
         }
         if (isClick) {
             if (event.repeatCount == 0) {
@@ -156,11 +137,11 @@ class OfficialWebPlaybackActivity : Activity() {
             }
         } else {
             val nextY = cursorY + dy
-            if (fullscreen == null && (nextY < 1 || nextY >= container.height)) {
-                web?.scrollBy(0, dy * 2)
+            if (fullscreen == null && (nextY < 1 || nextY >= height)) {
+                web.scrollBy(0, dy * 2)
             }
-            cursorX = (cursorX + dx).coerceIn(1f, (container.width - 1).toFloat())
-            cursorY = nextY.coerceIn(1f, (container.height - 1).toFloat())
+            cursorX = (cursorX + dx).coerceIn(1f, (width - 1).toFloat())
+            cursorY = nextY.coerceIn(1f, (height - 1).toFloat())
         }
         cursor.translationX = cursorX - cursor.width / 2f
         cursor.translationY = cursorY - cursor.height / 2f
@@ -170,48 +151,37 @@ class OfficialWebPlaybackActivity : Activity() {
         return true
     }
 
-    @Deprecated("Handled by the TV Back button")
-    override fun onBackPressed() {
-        if (fullscreen != null) closeFullscreen() else finish()
+    fun pauseMedia() {
+        web.evaluateJavascript("document.querySelectorAll('video').forEach(video => video.pause())", null)
     }
 
-    override fun onPause() {
-        web?.evaluateJavascript("document.querySelectorAll('video').forEach(video => video.pause())", null)
-        web?.onPause()
-        super.onPause()
+    fun pause() {
+        pauseMedia()
+        web.onPause()
     }
 
-    override fun onResume() {
-        super.onResume()
-        web?.onResume()
-    }
+    fun resume() = web.onResume()
 
-    override fun onDestroy() {
-        if (::cursor.isInitialized) cursor.removeCallbacks(hideCursor)
+    fun release() {
+        cursor.removeCallbacks(hideCursor)
         closeFullscreen()
-        web?.let {
-            container.removeView(it)
-            it.stopLoading()
-            it.destroy()
-        }
-        web = null
-        super.onDestroy()
+        web.stopLoading()
+        removeView(web)
+        web.destroy()
     }
 
-    private fun closeFullscreen() {
-        val view = fullscreen ?: return
+    fun closeFullscreen(): Boolean {
+        val view = fullscreen ?: return false
         fullscreen = null
-        container.removeView(view)
+        removeView(view)
         fullscreenCallback?.onCustomViewHidden()
         fullscreenCallback = null
+        return true
+    }
+
+    private fun hideCursorView() {
+        cursor.visibility = View.INVISIBLE
     }
 
     private fun dp(value: Int) = (value * resources.displayMetrics.density + .5f).toInt()
-
-    companion object {
-        private const val EXTRA_PAGE = "officialEpisodePage"
-
-        internal fun intent(context: Context, page: String) =
-            Intent(context, OfficialWebPlaybackActivity::class.java).putExtra(EXTRA_PAGE, page)
-    }
 }
