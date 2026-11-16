@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "repository": "yuyehk/hongguoTV",
+  "sourceSha": "9e436bc9a0380ba7c35c2276560d92f60643afcd",
+  "buildRunId": 43854777764,
+  "core": {
+    "tests": 298,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "app": {
+    "tests": 208,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "lintErrors": [],
+  "unsignedApkSha256": "5ad82be6a972be3c93789f2dae037d76a6932f7ade0bd5fe439934b0d620afa8"
+}
