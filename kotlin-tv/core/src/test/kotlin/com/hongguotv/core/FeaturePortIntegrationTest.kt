@@ -16,8 +16,11 @@ class FeaturePortIntegrationTest {
     private fun repository(respond: (Request) -> String) = ContentRepository(
         OkHttpClient.Builder().addInterceptor { chain ->
             val request=chain.request()
+            val body=if(request.url.encodedPath=="/service/2/device_register/")
+                """{"device_id":"1234567890123456789","install_id":"2234567890123456789"}"""
+            else respond(request)
             Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(200)
-                .message("OK").body(respond(request).toResponseBody()).build()
+                .message("OK").body(body.toResponseBody()).build()
         }.build()
     )
 
@@ -26,7 +29,8 @@ class FeaturePortIntegrationTest {
         "encrypt_info":{"encrypt":false},"main_url":"$url"}]
     }""")
 
-    @Test fun inlineLadderUsesSignedStableIdentityAcrossRepositoryInstances() {
+    @Test fun inlineLadderUsesSignedRegisteredIdentityWithoutMutatingGlobalIdentityAcrossRepositoryInstances() {
+        val original=VendorConstants.device.toMap()
         val requests=mutableListOf<Request>()
         repeat(2) {
             val repository=repository { request ->
@@ -41,12 +45,19 @@ class FeaturePortIntegrationTest {
         }
         assertEquals(2,requests.size)
         requests.forEach { request ->
-            assertEquals("/novel/player/multi_video_model/preload/v1/",request.url.encodedPath)
-            assertEquals(VendorConstants.device.getValue("device_id"),request.url.queryParameter("device_id"))
-            assertNotNull(request.header("x-gorgon"))
-            assertNotNull(request.header("x-medusa"))
+            assertEquals("/novel/player/multi_video_model/player/v1",request.url.encodedPath)
+            assertEquals("1234567890123456789",request.url.queryParameter("device_id"))
+            assertEquals("2234567890123456789",request.url.queryParameter("iid"))
+            for(header in listOf("x-khronos","x-helios","x-medusa")) assertNotNull(request.header(header))
+            assertNull(request.header("Cookie"))
+            assertEquals("gzip",request.header("Content-Encoding"))
+            val bytes=okio.Buffer().also { request.body!!.writeTo(it) }.readByteArray()
+            val payload=JSONObject(java.util.zip.GZIPInputStream(bytes.inputStream()).reader(Charsets.UTF_8).use { it.readText() })
+            assertEquals(1,payload.getJSONObject("biz_param").getInt("device_level"))
+            assertEquals("123",payload.getJSONObject("mixed_video_id_map").getJSONArray("1004").getString(0))
         }
         assertEquals(requests[0].url.queryParameter("device_id"),requests[1].url.queryParameter("device_id"))
+        assertEquals(original,VendorConstants.device)
     }
 
     @Test fun inlineModelForAnotherEpisodeCannotBypassRequestedEpisodeCheck() {

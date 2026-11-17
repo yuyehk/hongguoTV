@@ -155,30 +155,6 @@ class IncompatibleStreamException : IOException("没有电视可播放的清晰�
 
 class SearchSessionExpiredException : IOException("搜索结果已过期，请从第 1 页重新搜索")
 
-class EmptyContentResponse(message: String = "内容接口返回空响应，请稍后重试") : IOException(message)
-
-private class LegacyPlaybackResponseException(message: String, cause: Throwable? = null) :
-    IOException(message, cause)
-
-internal fun readContentText(response: okhttp3.Response): String {
-    if (!response.isSuccessful) throw ContentHttpException(response.code)
-    val body = response.body ?: throw IOException("内容响应为空")
-    val limit = 16 * 1024 * 1024
-    if (body.contentLength() > limit) throw IOException("内容响应过大")
-    val input = body.byteStream()
-    val out = java.io.ByteArrayOutputStream()
-    val buffer = ByteArray(8192)
-    while (out.size() <= limit) {
-        val n = input.read(buffer)
-        if (n < 0) break
-        out.write(buffer, 0, n)
-    }
-    val bytes = out.toByteArray()
-    if (bytes.size > limit) throw IOException("内容响应过大")
-    if (bytes.isEmpty()) throw EmptyContentResponse()
-    return String(bytes, Charsets.UTF_8)
-}
-
 class ContentRepository(
     val http: OkHttpClient =
         OkHttpClient.Builder()
@@ -190,15 +166,7 @@ class ContentRepository(
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
     private val signer = Signer()
-    private var playbackBatch = PlaybackModelBatch(clock)
-    private var refreshPlaybackSession = true
-
-    /** Prefetch owns its HTTP transport but can consume the same batch of video models. */
-    fun withPlaybackTransport(transport: OkHttpClient): ContentRepository =
-        ContentRepository(transport, clock).also {
-            it.playbackBatch = playbackBatch
-            it.refreshPlaybackSession = false
-        }
+    private val playbackSession = PlaybackSession(http, clock)
 
     // 榜单页偶发被 CDN 软拦截（空响应或挂起到超时）：收紧超时并单次重试，
     // 让整榜失败在最坏约 15 秒内暴露，而不是分钟级的全局超时。
@@ -238,7 +206,24 @@ class ContentRepository(
         signed?.body?.let {
             request.post(it.toRequestBody("application/json; charset=utf-8".toMediaType()))
         }
-        fun fetch() = RequestScope.execute(client.newCall(request.build()), ::readContentText)
+        fun fetch() =
+            RequestScope.execute(client.newCall(request.build())) { response ->
+                if (!response.isSuccessful) throw ContentHttpException(response.code)
+                val body = response.body ?: throw IOException("内容响应为空")
+                if (body.contentLength() > 16 * 1024 * 1024) throw IOException("内容响应过大")
+                val input = body.byteStream()
+                val out = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                while (out.size() <= 16 * 1024 * 1024) {
+                    val n = input.read(buffer)
+                    if (n < 0) break
+                    out.write(buffer, 0, n)
+                }
+                val bytes = out.toByteArray()
+                if (bytes.size > 16 * 1024 * 1024) throw IOException("内容响应过大")
+                if(bytes.isEmpty()) throw IOException("内容接口返回空响应，请稍后重试")
+                String(bytes, Charsets.UTF_8)
+            }
         try {
             return fetch()
         } catch (e: IOException) {
@@ -687,115 +672,16 @@ class ContentRepository(
         else info
     }
 
-    fun streamLadder(id: String): StreamLadder = streamLadder(id, emptyList())
-
-    /** Resolve the requested episode and keep upcoming models available to the next preload. */
-    fun streamLadder(id: String, episodeWindow: List<String>): StreamLadder {
-        require(id.matches(Regex("[0-9]{1,30}")))
-        val model = playbackBatch.get(id) ?: if (playbackBatch.preferred) {
-            registeredPlaybackModel(id, episodeWindow)
-        } else {
-            try {
-                preloadPlaybackModel(id)
-            } catch (error: IOException) {
-                if (RequestScope.isCurrentCancelled()) throw error
-                if (error !is EmptyContentResponse && error !is LegacyPlaybackResponseException &&
-                    error !is ContentHttpException) throw error
-                registeredPlaybackModel(id, episodeWindow)
-            }
-        }
-        return try {
-            streamLadderFromModel(model)
-        } catch (error: IOException) {
-            if (!RequestScope.isCurrentCancelled()) playbackBatch.invalidate(id)
-            throw error
-        } catch (error: org.json.JSONException) {
-            if (!RequestScope.isCurrentCancelled()) playbackBatch.invalidate(id)
-            throw IOException("播放信息格式异常", error)
-        }
-    }
-
-    fun invalidatePlaybackModel(id: String) = playbackBatch.invalidate(id)
-
-    private fun registeredPlaybackModel(id: String, episodeWindow: List<String>) =
-        playbackBatch.fetch(id, episodeWindow, http, refreshPlaybackSession) { request, client ->
-            text(request.url, request, client = client)
-        }
-
-    private fun preloadPlaybackModel(id: String): JSONObject {
-        val payload =
-            """{"biz_param":{"detail_page_version":0,"device_level":3,"disable_digg_stat":false,"need_all_video_definition":true,"need_mp4_align":false,"use_os_player":false,"use_server_dns":false,"video_platform":1024},"mixed_video_id_map":{"1004":["$id"]}}"""
-                .toByteArray()
-        val request=signer.sign("https://api5-normal-sinfonlineb.fqnovel.com/novel/player/multi_video_model/preload/v1/",VendorConstants.device,payload)
-        val playerUrl=request.url
-        val response = text(playerUrl, request)
-        if (response.isBlank()) throw EmptyContentResponse()
-        val data = try {
-            JSONObject(response)
-        } catch (error: org.json.JSONException) {
-            throw LegacyPlaybackResponseException("旧播放接口返回格式异常", error)
-        }
-        val code = data.optInt("Code", data.optInt("code", 0))
-        if (code != 0) throw LegacyPlaybackResponseException("播放接口暂不可用（错误码 $code）")
-        val map = data.optJSONObject("data") ?: throw IOException("播放信息为空")
-        val entry =
-            map.optJSONObject(id) ?: throw IOException("播放接口未返回当前分集")
-        return parsePlaybackModel(entry) ?: throw IOException("播放信息格式异常")
-    }
-
-    private fun streamLadderFromModel(model: JSONObject): StreamLadder {
+    /** Anonymous v5 protocol; retain legacy media parsing for older fallback models. */
+    fun streamLadder(id: String, allowIdentityRecovery: Boolean = true): StreamLadder {
+        val model = playbackSession.model(id, allowIdentityRecovery)
+        val current = PlaybackModels.renditions(model)
+        if (current.isNotEmpty()) return StreamLadder(current)
         // The current model already carries plain media URLs, dimensions and CENC keys.
         // Only use the legacy fallback endpoint when this shape has no usable rendition.
         val inlineArray = model.optJSONArray("video_list")
         val inlineRows = inlineArray?.objects().orEmpty()
-        val inline =
-            inlineRows.mapNotNull { row ->
-                runCatching {
-                        val meta = row.optJSONObject("video_meta") ?: return@runCatching null
-                        val encryption =
-                            row.optJSONObject("encrypt_info") ?: return@runCatching null
-                        val codec = meta.str("codec_type").lowercase()
-                        val url = cleanUrl(row.str("main_url"))
-                        if (
-                            codec.isBlank() ||
-                                codec in setOf("bytevc2", "bvc2") ||
-                                (!url.startsWith("https://") && !url.startsWith("http://"))
-                        )
-                            return@runCatching null
-                        val width = dimension(meta, "vwidth", "width") ?: return@runCatching null
-                        val height = dimension(meta, "vheight", "height") ?: return@runCatching null
-                        val key =
-                            encryption
-                                .str("spade_a")
-                                .takeIf(String::isNotBlank)
-                                ?.let(MediaCrypto::deriveKey)
-                        if (
-                            key == null &&
-                                encryption.opt("encrypt") !in listOf(false, 0, "0", "false")
-                        )
-                            return@runCatching null
-                        Rendition(
-                            qualityNumber(meta.str("definition")),
-                            codec,
-                            width,
-                            height,
-                            url,
-                            key,
-                        )
-                    }
-                    .getOrNull()
-            }
-        if (inline.isNotEmpty()) return StreamLadder(inline)
-        val raw = model.opt("fallback_api")
-        val fallback =
-            when (raw) {
-                null, JSONObject.NULL -> ""
-                is JSONObject -> raw.str("fallback_api")
-                is JSONArray -> raw.optString(0)
-                else ->
-                    runCatching { JSONObject(raw.toString()).str("fallback_api") }
-                        .getOrDefault(raw.toString())
-            }
+        val fallback = PlaybackModels.fallback(model).orEmpty()
         if (!fallback.startsWith("https://")) {
             if (inlineRows.isNotEmpty() && inlineRows.size == inlineArray?.length() && inlineRows.all { row ->
                 val url = cleanUrl(row.str("main_url"))

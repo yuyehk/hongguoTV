@@ -104,9 +104,6 @@ class RemoteVideo(private val http: OkHttpClient, val info: StreamInfo) : Closea
         require(start in 0 until total && length in 1..1024 * 1024)
         val end = minOf(total - 1, start + length - 1)
         val call = newCall(start, end)
-        // Media3 can suspend this reader while the next episode is preloaded or playback is paused.
-        // Connect/read timeouts bound active I/O, and close() cancels this stream explicitly.
-        call.timeout().clearTimeout()
         var response: Response? = null
         try {
             val opened = call.execute()

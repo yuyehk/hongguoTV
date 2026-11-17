@@ -2,6 +2,36 @@ package com.hongguotv.core
 
 fun main(args: Array<String>) {
     val repository=ContentRepository()
+    if(args.contains("--verify-playback")) {
+        // Bounded public episode probe: never print signed URLs, request headers or keys.
+        val ids=args.filter { it.matches(Regex("[0-9]{1,30}")) }.ifEmpty {
+            listOf("7703065456646556696", "7703065456650767384")
+        }.take(4)
+        var failures=0
+        try {
+            for(id in ids) {
+                try {
+                    val ladder=repository.streamLadder(id)
+                    val selected=checkNotNull(ladder.select(720))
+                    RemoteVideo(repository.http,selected.toStreamInfo()).use { video ->
+                        video.prepare(65536)
+                        val bytes=video.read(0,65536)
+                        check(bytes.size>8 && String(bytes,4,4,Charsets.US_ASCII)=="ftyp")
+                        println("episode=$id; variants=${ladder.renditions.size}; quality=${selected.quality}; codec=${selected.codec}; bytes=${bytes.size}; mp4=verified")
+                    }
+                } catch(error: Exception) {
+                    failures++
+                    val status=if(error is PlaybackSourceException) "; reason=${error.reason}; code=${error.upstreamCode}" else ""
+                    println("episode=$id; failed=${error.javaClass.simpleName}$status")
+                }
+            }
+        } finally {
+            repository.http.connectionPool.evictAll()
+            repository.http.dispatcher.executorService.shutdown()
+        }
+        check(failures==0) { "Playback probe failed for $failures/${ids.size} episodes (no credentials logged)" }
+        return
+    }
     if(args.contains("--playback-only")) {
         try {
             val series=args.firstOrNull { it.matches(Regex("[0-9]{1,30}")) } ?: error("Provide a series ID")

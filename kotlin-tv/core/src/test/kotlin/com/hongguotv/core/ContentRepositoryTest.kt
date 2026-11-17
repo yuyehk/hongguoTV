@@ -42,18 +42,21 @@ class ContentRepositoryTest {
         assertEquals("720P",repo.stream("123",720).quality)
     }
 
-    @Test fun preloadRequestCarriesRequiredPayloadAndRandomIdentity() {
+    @Test fun playerRequestCarriesGzipPayloadAndRegisteredAnonymousIdentity() {
         var requests=0
         val repo=repository { request ->
             requests++
             if(request.url.host=="example.com") {
                 """{"video_info":{"data":{"video_list":{"v":{"main_url":"https://example.com/video","height":720}}}}}"""
             } else {
-                assertEquals("/novel/player/multi_video_model/preload/v1/",request.url.encodedPath)
-                assertTrue(DeviceIdentity.isValid(request.url.queryParameter("device_id")!!))
-                assertEquals(VendorConstants.device["device_id"],request.url.queryParameter("device_id"))
+                assertEquals("/novel/player/multi_video_model/player/v1",request.url.encodedPath)
+                assertEquals("1234567890123456",request.url.queryParameter("device_id"))
+                assertEquals("1234567890123457",request.url.queryParameter("iid"))
+                assertEquals("gzip",request.header("Content-Encoding"))
+                assertNotNull(request.header("x-medusa"))
                 val bytes=okio.Buffer(); request.body!!.writeTo(bytes)
-                val payload=JSONObject(bytes.readUtf8())
+                val payload=JSONObject(java.util.zip.GZIPInputStream(bytes.inputStream()).reader().readText())
+                assertEquals(1,payload.getJSONObject("biz_param").getInt("device_level"))
                 assertEquals(1024,payload.getJSONObject("biz_param").getInt("video_platform"))
                 assertTrue(payload.getJSONObject("biz_param").getBoolean("need_all_video_definition"))
                 assertEquals("123",payload.getJSONObject("mixed_video_id_map").getJSONArray("1004").getString(0))
@@ -63,6 +66,26 @@ class ContentRepositoryTest {
         }
         assertEquals("720P",repo.stream("123",720).quality)
         assertEquals(2,requests)
+    }
+
+    @Test fun malformedInlineVideoCannotShortCircuitValidLegacyFallback() {
+        for (codec in listOf("aac", "h264")) {
+            var fallbackCalls=0
+            val repo=repository { request ->
+                if(request.url.host=="example.com") {
+                    fallbackCalls++
+                    """{"video_info":{"data":{"video_list":{"v":{"main_url":"https://example.com/valid","height":720,"codec_type":"h264"}}}}}"""
+                } else {
+                    // AAC is audio; the h264 row has no crypto declaration. Neither is playable.
+                    val row=JSONObject().put("main_url","https://example.com/broken")
+                        .put("video_meta",JSONObject().put("codec_type",codec).put("vwidth",1280).put("vheight",720))
+                    val model=JSONObject().put("video_list",JSONArray().put(row)).put("fallback_api","https://example.com/info")
+                    JSONObject().put("data",JSONObject().put("123",JSONObject().put("video_model",model))).toString()
+                }
+            }
+            assertEquals("https://example.com/valid",repo.stream("123").url)
+            assertEquals(1,fallbackCalls)
+        }
     }
 
     @Test fun preloadNeverPlaysAnotherEpisodeWhenRequestedIdIsMissing() {
@@ -78,7 +101,9 @@ class ContentRepositoryTest {
     private fun repository(clock: () -> Long = System::currentTimeMillis, respond: (Request) -> String) = ContentRepository(
         OkHttpClient.Builder().addInterceptor { chain ->
             Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1)
-                .code(200).message("OK").body(respond(chain.request()).toResponseBody()).build()
+                .code(200).message("OK").body((if (chain.request().url.encodedPath == "/service/2/device_register/")
+                    """{"device_id":"1234567890123456","install_id":"1234567890123457"}"""
+                    else respond(chain.request())).toResponseBody()).build()
         }.build(),clock
     )
 

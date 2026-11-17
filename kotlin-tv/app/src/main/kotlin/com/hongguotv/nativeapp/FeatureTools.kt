@@ -18,7 +18,7 @@ import java.util.concurrent.Executors
 
 /**
  * Isolated optional functions inspired by the public jycao2/hongguoTV fork. Function-specific
- * dialogs only, with dedicated controllers for app updates and other system interactions.
+ * dialogs with dedicated controllers for app updates and other system interactions.
  */
 class FeatureTools(
     private val activity: Activity,

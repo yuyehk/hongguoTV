@@ -146,7 +146,7 @@ internal class PublicFeedBackend(
 
     override fun detail(series: Series) = timed("detail") { repository.detail(series.id) }
 
-    private fun open(id: String): RemoteVideo {
+    private fun open(id: String, allowIdentityRecovery: Boolean = true): RemoteVideo {
         val opened =
             openStream(
                 http,
@@ -155,6 +155,7 @@ internal class PublicFeedBackend(
                 quality,
                 CodecCapabilities::supports,
                 initialBytes = 32 * 1024,
+                allowIdentityRecovery = allowIdentityRecovery,
             ) {
                 it == null || CodecCapabilities.supports(it)
             } ?: throw java.io.IOException("该作品暂时没有可试播的剧集")
@@ -166,7 +167,9 @@ internal class PublicFeedBackend(
         return TrialClip(detail, open(id))
     }
 
-    override fun trial(series: Series): TrialClip {
+    override fun trial(series: Series): TrialClip = trial(series, true)
+
+    private fun trial(series: Series, allowIdentityRecovery: Boolean): TrialClip {
         val hint =
             synchronized(trialHints) { trialHints[series.id] }
                 ?: run {
@@ -195,14 +198,19 @@ internal class PublicFeedBackend(
                 }
         return TrialClip(
             Detail(series, listOf(hint.episodeId)),
-            timed("play-address") { open(hint.episodeId) },
+            timed("play-address") { open(hint.episodeId, allowIdentityRecovery) },
             hint.episodeCount,
         )
     }
 
     // Publish the prepared header immediately. Media3 preloads samples according to duration;
     // a foreground switch must not wait for an additional fixed 1 MiB speculative download.
-    override fun preload(series: Series): TrialClip = trial(series)
+    override fun preload(series: Series): TrialClip = trial(series, false)
+
+    override fun prefetch(detail: Detail): TrialClip {
+        val id = detail.episodes.firstOrNull() ?: throw java.io.IOException("该作品暂时没有可试播的剧集")
+        return TrialClip(detail, open(id, false))
+    }
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return

@@ -164,34 +164,42 @@ class UpstreamContentRepositoryTest {
     }
 
     @Test
-    fun playbackUsesSignedPersistedIdentifiersAndKeepsThemAcrossEpisodes() {
+    fun playbackUsesSignedRegisteredIdentifiersAndKeepsThemAcrossEpisodes() {
+        val original = VendorConstants.device.toMap()
         val requests = mutableListOf<Request>()
         val repo = repository { request ->
             requests += request
-            """{"code":0,"data":{"123":{"video_model":{"video_list":[{"main_url":"https://example.com/123.mp4","video_meta":{"codec_type":"h265","vwidth":1280,"vheight":720,"definition":"720p"},"encrypt_info":{"encrypt":false}}]}}}}"""
+            """{"Code":110001}"""
         }
         repeat(2) {
-            assertEquals("https://example.com/123.mp4", repo.stream("123").url)
+            val error = assertThrows(IOException::class.java) { repo.stream("123") }
+            assertTrue(error.message.orEmpty().contains("110001"))
         }
+        assertEquals(2, requests.size)
         for (request in requests) {
             assertEquals("POST", request.method)
-            for (header in listOf("x-gorgon", "x-medusa", "x-argus", "x-ladon")) assertNotNull(request.header(header))
-            assertEquals("/novel/player/multi_video_model/preload/v1/", request.url.encodedPath)
-            for (key in listOf("iid", "device_id")) {
+            for (header in listOf("x-khronos", "x-helios", "x-medusa")) assertNotNull(request.header(header))
+            for (header in listOf("x-gorgon", "x-argus", "x-ladon", "Cookie")) assertNull(request.header(header))
+            assertEquals("/novel/player/multi_video_model/player/v1", request.url.encodedPath)
+            val expected = mapOf("iid" to "2234567890123456789", "device_id" to "1234567890123456789")
+            for ((key, registered) in expected) {
                 val value=request.url.queryParameter(key)!!
-                assertEquals(VendorConstants.device[key], value)
+                assertEquals(registered, value)
                 assertEquals(requests.first().url.queryParameter(key),value)
             }
+            assertEquals("gzip", request.header("Content-Encoding"))
             val body = okio.Buffer()
             request.body!!.writeTo(body)
+            val payload = JSONObject(java.util.zip.GZIPInputStream(body.readByteArray().inputStream()).reader(Charsets.UTF_8).use { it.readText() })
+            assertEquals(1, payload.getJSONObject("biz_param").getInt("device_level"))
             assertEquals(
                 "123",
-                JSONObject(body.readUtf8())
-                    .getJSONObject("mixed_video_id_map")
+                payload.getJSONObject("mixed_video_id_map")
                     .getJSONArray("1004")
                     .getString(0),
             )
         }
+        assertEquals(original, VendorConstants.device)
     }
 
     @Test
@@ -331,12 +339,16 @@ class UpstreamContentRepositoryTest {
         ContentRepository(
             OkHttpClient.Builder()
                 .addInterceptor { chain ->
+                    val request = chain.request()
+                    val body = if (request.url.encodedPath == "/service/2/device_register/")
+                        """{"device_id":"1234567890123456789","install_id":"2234567890123456789"}"""
+                    else respond(request)
                     Response.Builder()
-                        .request(chain.request())
+                        .request(request)
                         .protocol(Protocol.HTTP_1_1)
                         .code(200)
                         .message("OK")
-                        .body(respond(chain.request()).toResponseBody())
+                        .body(body.toResponseBody())
                         .build()
                 }
                 .build(),

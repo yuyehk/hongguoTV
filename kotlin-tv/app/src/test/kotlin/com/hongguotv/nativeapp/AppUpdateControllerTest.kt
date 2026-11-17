@@ -58,6 +58,21 @@ class AppUpdateControllerTest {
         }
     }
 
+    @Test fun manualCheckShowsAndRecordsTheCurrentVersion() {
+        val current = BuildConfig.VERSION_NAME.substringBefore('-')
+        withUpdater(reply = { checksum(current) }) { updater, finish ->
+            updater.show()
+            finish()
+            val result = ShadowAlertDialog.getLatestAlertDialog()
+            assertTrue(result.isShowing)
+            assertEquals(
+                "当前版本 ${BuildConfig.VERSION_NAME} 已是最新。",
+                org.robolectric.Shadows.shadowOf(result).message.toString(),
+            )
+            assertTrue(updater.diagnostics().contains("已是最新"))
+        }
+    }
+
     @Test fun transientCheckFailureRetriesThenRecordsTheSuccessfulResult() {
         var requests = 0
         val current = BuildConfig.VERSION_NAME.substringBefore('-')

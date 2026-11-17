@@ -91,9 +91,10 @@ internal class AppUpdateController(
                 is SocketTimeoutException, is SocketException, is UnknownHostException -> true
                 else -> false
             }
-            if (!temporary || RequestScope.isCurrentCancelled()) throw error
+            if (!temporary) throw error
+            RequestScope.ensureActive()
             Thread.sleep(500)
-            if (RequestScope.isCurrentCancelled()) throw error
+            RequestScope.ensureActive()
             return source.check(BuildConfig.VERSION_NAME)
         }
     }

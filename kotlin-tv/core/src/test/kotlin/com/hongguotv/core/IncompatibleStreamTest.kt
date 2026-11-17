@@ -8,8 +8,12 @@ import org.junit.Test
 
 class IncompatibleStreamTest {
     private fun repository(answer: (Request) -> String) = ContentRepository(OkHttpClient.Builder().addInterceptor { chain ->
-        Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200)
-            .message("OK").body(answer(chain.request()).toResponseBody()).build()
+        val request = chain.request()
+        val body = if (request.url.encodedPath == "/service/2/device_register/")
+            """{"device_id":"1234567890123456789","install_id":"2234567890123456789"}"""
+        else answer(request)
+        Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(200)
+            .message("OK").body(body.toResponseBody()).build()
     }.build())
 
     @Test fun knownLegacyIncompatibilityHasTypedFailureButMalformedSiblingDoesNot() {

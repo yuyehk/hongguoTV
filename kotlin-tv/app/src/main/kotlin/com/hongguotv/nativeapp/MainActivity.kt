@@ -265,7 +265,6 @@ class MainActivity : Activity() {
     private var group = 0
     private var synopsisExpanded = false
     private var player: ExoPlayer? = null
-    private var officialPlayback: OfficialWebPlaybackView? = null
     private var video: RemoteVideo? = null
     private var playbackReady = false
     private var pausedForLifecycle = false
@@ -651,7 +650,6 @@ class MainActivity : Activity() {
     }
 
     private fun invalidatePage() {
-        closeOfficialPlayback()
         generation++
         cancelWork()
         artwork.cancelPage()
@@ -2787,7 +2785,7 @@ class MainActivity : Activity() {
         val requestedId=data.episodes[episodeIndex]; val maxQuality=library.maxQuality; val ticket=generation
         pendingPrepared=prefetched?.let { it to claimedHttp }
         android.util.Log.i("HongguoTV","Episode resolve episode=${episodeIndex+1} prepared=${prefetched!=null} retainedFrame=$reuse")
-        work({ queuedClaim?.opened ?: prefetched?.let { OpenedStream(it,null,emptyList(),it.trackInfo()) } ?: openStream(repository.http,repository,requestedId,maxQuality,CodecCapabilities::supports,episodeWindow=data.episodes) { it==null || CodecCapabilities.supports(it) } ?: throw IncompatibleEpisodeException("没有电视可播放的编码或清晰度") }, { opened ->
+        work({ queuedClaim?.opened ?: prefetched?.let { OpenedStream(it,null,emptyList(),it.trackInfo()) } ?: openStream(repository.http,repository,requestedId,maxQuality,CodecCapabilities::supports) { it==null || CodecCapabilities.supports(it) } ?: throw IncompatibleEpisodeException("没有电视可播放的编码或清晰度") }, { opened ->
             val remote=opened.video
             val previousVideo=video; val previousHttp=playbackHttp
             if(pendingPrepared?.first===remote) pendingPrepared=null
@@ -3011,12 +3009,12 @@ class MainActivity : Activity() {
         val http=repository.http.newBuilder().dispatcher(okhttp3.Dispatcher()).connectionPool(okhttp3.ConnectionPool())
             .connectTimeout(8,java.util.concurrent.TimeUnit.SECONDS).readTimeout(15,java.util.concurrent.TimeUnit.SECONDS)
             .callTimeout(20,java.util.concurrent.TimeUnit.SECONDS).build()
-        val source=repository.withPlaybackTransport(http); prefetchHttp=http
+        val source=ContentRepository(http); prefetchHttp=http
         val scope=RequestScope(); prefetchScope=scope
         prefetchJob=prefetchWorker.submit {
             var remote: RemoteVideo?=null
             try {
-                val opened=scope.run { openStream(http,source,id,quality,CodecCapabilities::supports,episodeWindow=data.episodes) { it==null || CodecCapabilities.supports(it) } ?: throw java.io.IOException("没有可预载的资源") }
+                val opened=scope.run { openStream(http,source,id,quality,CodecCapabilities::supports,allowIdentityRecovery=false) { it==null || CodecCapabilities.supports(it) } ?: throw java.io.IOException("没有可预载的资源") }
                 val prepared=scope.run { opened.video.also { remote=it; it.warm() } }
                 if(preparedNext.complete(ticket,key,prepared)) main.post {
                     if(!foreground || generation!=pageTicket || player!==p || episodeIndex!=fromEpisode ||
@@ -3120,9 +3118,6 @@ class MainActivity : Activity() {
         saveProgress()
         cancelRecovery()
         cancelPrefetch()
-        if (problem is PlaybackException && problem.errorCode in 2000..2999) {
-            detail?.episodes?.getOrNull(episodeIndex)?.let(repository::invalidatePlaybackModel)
-        }
         // The device claimed support it doesn't have (MediaCodecList over-reporting): learn the
         // runtime verdict and retry one tier lower automatically instead of surfacing the panel.
         if (
@@ -3160,31 +3155,19 @@ class MainActivity : Activity() {
         controls.visibility = View.VISIBLE
         panel = true
         val decoding = incompatibleFailure(problem)
-        val officialPage = detail?.let {
-            officialPlaybackFallback(problem, it.series.id, it.episodes.getOrNull(episodeIndex))
-        }
         val retryable =
-            if (officialPage != null || decoding || problem is PlaybackRegistrationDeferredException) false else if (problem is PlaybackException)
+            if (decoding) false else if (problem is PlaybackException)
                 problem.errorCode in 2000..2999 ||
                     problem.errorCode == PlaybackException.ERROR_CODE_TIMEOUT
             else problem is java.io.IOException
-        playbackText.text = if (officialPage != null) {
-            "取流接口未返回视频。可使用官网播放本集。"
-        } else if (problem is PlaybackRegistrationDeferredException) {
-            problem.message
-        } else if (decoding) {
+        playbackText.text = if (decoding) {
             if (incompatibleSkips.count >= 5) "已连续跳过5集，自动跳过已停止；可手动选择其他集。"
             else "电视不支持当前视频编码，可尝试更低清晰度或跳过这集。"
         } else "播放失败，可重试或切换清晰度。"
         val actions = row()
         controls.addView(actions)
-        val officialButton = officialPage?.let { page ->
-            addButton(actions, "官网播放") {
-                showOfficialPlayback(page)
-            }
-        }
-        val retryButton = addButton(actions, "立即重试") { playEpisode(episodeIndex, retryPosition, retryAutoplay) }
-        (officialButton ?: retryButton).requestFocus()
+        addButton(actions, "立即重试") { playEpisode(episodeIndex, retryPosition, retryAutoplay) }
+            .requestFocus()
         nextLowerQuality(if (attemptedQuality > 0) attemptedQuality else library.maxQuality)?.let {
             lower ->
             addButton(actions, "尝试 ${lower}P") {
@@ -3217,34 +3200,6 @@ class MainActivity : Activity() {
             "Playback failure: ${problem.javaClass.simpleName}" +
                 (if (problem is PlaybackException) " code=${problem.errorCodeName}" else ""),
         )
-        if (officialPage != null && foreground && retryAutoplay) showOfficialPlayback(officialPage)
-    }
-
-    private fun showOfficialPlayback(page: String) {
-        if (officialPlayback != null) return
-        val view = try {
-            OfficialWebPlaybackView(this, page)
-        } catch (problem: RuntimeException) {
-            playbackText.text = "电视的网页播放器暂时不可用，可重试或返回选集。"
-            android.util.Log.w("HongguoTV", "Official playback unavailable: ${problem.javaClass.simpleName}")
-            return
-        }
-        releasePlayer()
-        hud.visibility = View.GONE
-        root.removeAllViews()
-        root.addView(view, FrameLayout.LayoutParams(-1, -1))
-        officialPlayback = view
-        view.requestFocus()
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        Toast.makeText(this, "官网播放 · 方向键移动光标，确定点击", Toast.LENGTH_LONG).show()
-        android.util.Log.i("HongguoTV", "Official playback attached to current player")
-    }
-
-    private fun closeOfficialPlayback() {
-        val view = officialPlayback ?: return
-        officialPlayback = null
-        root.removeView(view)
-        view.release()
     }
 
     private fun incompatibleFailure(problem: Throwable): Boolean =
@@ -3347,7 +3302,7 @@ class MainActivity : Activity() {
     }
 
     private fun syncMediaSession() {
-        if (!foreground || screen != "player" || officialPlayback != null) {
+        if (!foreground || screen != "player") {
             mediaSession.deactivate()
             return
         }
@@ -3382,12 +3337,8 @@ class MainActivity : Activity() {
         sleepStopped=true; requestedAutoplay=false; retryAutoplay=false; pausedForLifecycle=true
         cancelRecovery(); cancelPrefetch(); player?.pause(); saveProgress()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        val official = officialPlayback
-        if (official != null) official.pauseMedia()
-        else {
-            playbackText.text="定时停止已生效 · 观看位置已保存 · 按播放可继续"
-            showHud(); if(!playError && episodePanel==null) showPanel(); syncMediaSession()
-        }
+        playbackText.text="定时停止已生效 · 观看位置已保存 · 按播放可继续"
+        showHud(); if(!playError && episodePanel==null) showPanel(); syncMediaSession()
         Toast.makeText(this,"定时停止已生效",Toast.LENGTH_LONG).show()
     }
 
@@ -3707,7 +3658,6 @@ class MainActivity : Activity() {
     }
 
     private fun releasePlayer() {
-        closeOfficialPlayback()
         restoreHoldSpeed()
         social.reset()
         discardPendingPrepared()
@@ -3741,10 +3691,6 @@ class MainActivity : Activity() {
     }
 
     private fun goBack() {
-        officialPlayback?.let {
-            if (!it.closeFullscreen()) returnToDetail()
-            return
-        }
         if (!library.isLoaded) {
             showExitConfirmation()
             return
@@ -3820,13 +3766,6 @@ class MainActivity : Activity() {
     override fun onBackPressed() = goBack()
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        officialPlayback?.let {
-            if (event.keyCode == KeyEvent.KEYCODE_BACK) {
-                if (event.action == KeyEvent.ACTION_UP) goBack()
-                return true
-            }
-            return it.handleRemoteKey(event) || super.dispatchKeyEvent(event)
-        }
         if (::featureTools.isInitialized && screen == "player") {
             val action = featureTools.keyAction(event.keyCode)
             if (action != FeatureKeyAction.DEFAULT && event.keyCode in FeaturePreferences.REMOTE_KEYS) {
@@ -3945,7 +3884,6 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         foreground = true
-        officialPlayback?.resume()
         social.foreground(true)
         main.removeCallbacks(tick)
         main.post(tick)
@@ -3982,7 +3920,6 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
-        officialPlayback?.pause()
         restoreHoldSpeed()
         if (::featureTools.isInitialized) featureTools.preferences.flushStats()
         searchSuggestions?.cancel()

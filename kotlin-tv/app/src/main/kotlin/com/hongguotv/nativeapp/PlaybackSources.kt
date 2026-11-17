@@ -6,9 +6,7 @@ import com.hongguotv.core.ContentRepository
 import com.hongguotv.core.PlaybackQuality
 import com.hongguotv.core.RemoteVideo
 import com.hongguotv.core.Rendition
-import com.hongguotv.core.RequestScope
 import com.hongguotv.core.VideoTracks
-import java.io.IOException
 import okhttp3.OkHttpClient
 
 internal class OpenedStream(
@@ -29,10 +27,10 @@ internal fun openStream(
     maxQuality: Int,
     supportsRendition: (Rendition) -> Boolean,
     initialBytes: Int = 256 * 1024,
-    episodeWindow: List<String> = emptyList(),
+    allowIdentityRecovery: Boolean = true,
     supportsTrack: (VideoTracks.Track?) -> Boolean,
 ): OpenedStream? {
-    val ladder = repository.streamLadder(id, episodeWindow)
+    val ladder = repository.streamLadder(id, allowIdentityRecovery)
     for (rendition in ladder.playbackOrder(maxQuality, supportsRendition)) {
         val video = RemoteVideo(http, rendition.toStreamInfo())
         try {
@@ -47,9 +45,6 @@ internal fun openStream(
             video.close()
         } catch (error: Exception) {
             video.close()
-            if (error is IOException && !RequestScope.isCurrentCancelled()) {
-                repository.invalidatePlaybackModel(id)
-            }
             throw error
         }
     }

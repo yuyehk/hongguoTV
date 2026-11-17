@@ -22,8 +22,13 @@ class CompatibleResourcesTest {
     private fun repo(url:String=pinned, respond:(Request)->String): ContentRepository = ContentRepository(
         OkHttpClient.Builder().addInterceptor { chain ->
             val request=chain.request()
-            val body=if(request.url.host=="example.com")respond(request) else JSONObject().put("data",
-                JSONObject().put("123",JSONObject().put("video_model",JSONObject().put("fallback_api",url)))).toString()
+            val body=when {
+                request.url.encodedPath=="/service/2/device_register/" ->
+                    """{"device_id":"1234567890123456789","install_id":"2234567890123456789"}"""
+                request.url.host=="example.com" -> respond(request)
+                else -> JSONObject().put("data",
+                    JSONObject().put("123",JSONObject().put("video_model",JSONObject().put("fallback_api",url)))).toString()
+            }
             Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(200).message("OK")
                 .body(body.toResponseBody()).build()
         }.build())

@@ -26,8 +26,6 @@ class RequestScope {
 
     @Synchronized private fun detach(call: Call) { calls -= call }
 
-    @Synchronized private fun isCancelled() = cancelled
-
     fun <T> run(action: () -> T): T {
         val previous = current.get()
         current.set(this)
@@ -41,10 +39,18 @@ class RequestScope {
 
     companion object {
         private val current = ThreadLocal<RequestScope>()
-        fun isCurrentCancelled(): Boolean =
-            Thread.currentThread().isInterrupted || current.get()?.isCancelled() == true
+
+        /** Check before registration and recovery, not only when attaching a call. */
+        fun ensureActive() {
+            val owner = current.get()
+            if (Thread.currentThread().isInterrupted ||
+                (owner != null && synchronized(owner) { owner.cancelled })) {
+                throw IOException("请求已取消")
+            }
+        }
 
         fun <T> execute(call: Call, consume: (Response) -> T): T {
+            ensureActive()
             val owner = current.get()
             owner?.attach(call)
             try { return call.execute().use(consume) }

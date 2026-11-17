@@ -105,10 +105,19 @@ class MainCompletionIntegrationTest {
             ShadowLooper.idleMainLooper()
             var requests = 0
             val http = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                if (request.url.encodedPath == "/service/2/device_register/") {
+                    return@addInterceptor Response.Builder().request(request).protocol(Protocol.HTTP_1_1)
+                        .code(200).message("registration fixture")
+                        .body("""{"device_id":"1234567890123456","install_id":"1234567890123457"}""".toResponseBody()).build()
+                }
                 requests++
+                assertEquals("/novel/player/multi_video_model/player/v1",request.url.encodedPath)
+                assertEquals("gzip",request.header("Content-Encoding"))
                 val body = okio.Buffer()
-                chain.request().body!!.writeTo(body)
-                val id = JSONObject(body.readUtf8()).getJSONObject("mixed_video_id_map").getJSONArray("1004").getString(0)
+                request.body!!.writeTo(body)
+                val json=java.util.zip.GZIPInputStream(body.inputStream()).reader().use { it.readText() }
+                val id = JSONObject(json).getJSONObject("mixed_video_id_map").getJSONArray("1004").getString(0)
                 val raw = """{"data":{"$id":{"video_model":{"video_list":[{"main_url":"https://example.com/video","video_meta":{"codec_type":"bvc2","width":720,"height":1280},"encrypt_info":{"encrypt":false}}]}}}}"""
                 Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("fixture")
                     .body(raw.toResponseBody()).build()

@@ -64,6 +64,13 @@ class FeedStartupCacheTest {
             OkHttpClient.Builder()
                 .addInterceptor { chain ->
                     val req = chain.request()
+                    // Registration is transport setup, not a feed/detail/media cache request.
+                    if (req.url.encodedPath == "/service/2/device_register/") {
+                        return@addInterceptor Response.Builder().request(req)
+                            .protocol(Protocol.HTTP_1_1).message("test").code(200)
+                            .body("""{"device_id":"1234567890123456789","install_id":"2234567890123456789"}""".toResponseBody())
+                            .build()
+                    }
                     paths += req.url.encodedPath
                     val builder =
                         Response.Builder().request(req).protocol(Protocol.HTTP_1_1).message("test")
@@ -81,8 +88,14 @@ class FeedStartupCacheTest {
                             when (req.url.encodedPath) {
                                 "/detail" ->
                                     """<script>_ROUTER_DATA={"loaderData":{"detail_page":{"seriesDetail":{"series_id":"101","series_title":"缓存作品","vid_list":["10101","10102"]}}}};</script>"""
-                                "/novel/player/multi_video_model/preload/v1/" ->
+                                "/novel/player/multi_video_model/player/v1" -> {
+                                    assertEquals("gzip", req.header("Content-Encoding"))
+                                    val bytes = okio.Buffer().also { req.body!!.writeTo(it) }.readByteArray()
+                                    val payload = org.json.JSONObject(java.util.zip.GZIPInputStream(bytes.inputStream()).reader(Charsets.UTF_8).use { it.readText() })
+                                    assertEquals("10101", payload.getJSONObject("mixed_video_id_map").getJSONArray("1004").getString(0))
+                                    assertEquals(1, payload.getJSONObject("biz_param").getInt("device_level"))
                                     """{"data":{"10101":{"video_model":{"video_list":[{"main_url":"https://example.test/video","video_meta":{"definition":"720p","codec_type":"h264","vwidth":720,"vheight":1280},"encrypt_info":{"encrypt":false}}]}}}}"""
+                                }
                                 else -> error("Unexpected request")
                             }
                         builder.code(200).body(json.toResponseBody()).build()
@@ -104,7 +117,7 @@ class FeedStartupCacheTest {
                 }
             }
             assertEquals(1, paths.count { it == "/detail" })
-            assertEquals(2, paths.count { it == "/novel/player/multi_video_model/preload/v1/" })
+            assertEquals(2, paths.count { it == "/novel/player/multi_video_model/player/v1" })
             assertEquals(listOf("bytes=0-262143", "bytes=0-262143"), ranges)
             assertEquals(5, paths.size)
         } finally {
