@@ -1,0 +1,10 @@
+{
+  "tag": "v0.11.14",
+  "sourceSha": "0d971fd12ed1d56dd332fa0eefe2e7efddd15f16",
+  "buildRunId": 44859638990,
+  "apk": "hongguotv-0.11.14-android14-transitions.apk",
+  "apkSha256": "7724229bde128b5204714bf46712f701864cb28d9335891bd0f70e079353dd31",
+  "certificateSha256": "76e72e760843107a1640ad8544fe46b5772e28fa00b8708ba414d5173ea3c9fa",
+  "versionName": "0.11.14-android14-transitions",
+  "versionCode": 28
+}
