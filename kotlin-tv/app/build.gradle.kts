@@ -12,8 +12,8 @@ android {
         minSdk = 23
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         targetSdk = 36
-        versionCode = System.getenv("HONGGUOTV_VERSION_CODE")?.toInt() ?: 27
-        versionName = System.getenv("HONGGUOTV_VERSION_NAME") ?: "0.11.13-android14-transitions"
+        versionCode = System.getenv("HONGGUOTV_VERSION_CODE")?.toInt() ?: 28
+        versionName = System.getenv("HONGGUOTV_VERSION_NAME") ?: "0.11.14-android14-transitions"
     }
     buildFeatures { buildConfig = true }
     testOptions {

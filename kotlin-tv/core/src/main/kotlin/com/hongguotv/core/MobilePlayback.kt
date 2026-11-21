@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Adapted from N3urda/hongguoTV 6672b55 and tsukiyo-zero/hongguoTV 0236976.
+// Bodyless video_tab recovery adapted from jackotom/hongguo-drama 92df757.
 package com.hongguotv.core
 
 import java.io.ByteArrayOutputStream
@@ -16,7 +17,7 @@ import org.json.JSONObject
 
 internal data class MobileSignedRequest(val url: String, val headers: Map<String, String>)
 internal fun interface MobilePlaybackSigner {
-    fun sign(url: String, body: ByteArray, device: Map<String, String>): MobileSignedRequest
+    fun sign(url: String, body: ByteArray?, device: Map<String, String>): MobileSignedRequest
 }
 
 internal object MobilePlayback {
@@ -38,6 +39,39 @@ internal object MobilePlayback {
               signer: MobilePlaybackSigner, now: Long): JSONObject {
         require(id.matches(Regex("[0-9]{1,30}")))
         RequestScope.ensureActive()
+        return try {
+            videoTabModel(id, device, http, signer, now)
+        } catch (empty: EmptyPlaybackResponseException) {
+            // Reuse this identity; only both empty endpoints qualify for session recovery.
+            RequestScope.ensureActive()
+            playerModel(id, device, http, signer, now)
+        }
+    }
+
+    private fun videoTabModel(id: String, device: Map<String, String>, http: OkHttpClient,
+                              signer: MobilePlaybackSigner, now: Long): JSONObject {
+        val query = linkedMapOf("aid" to "8662", "app_name" to "novelread", "version_code" to "74332",
+            "version_name" to "7.4.3.32", "channel" to "vivo_8662_64", "device_platform" to "android",
+            "device_type" to "PGT-AN10", "os_version" to "12", "update_version_code" to "74332",
+            "iid" to device.getValue("iid"), "cdid" to device.getValue("cdid"),
+            "device_id" to device.getValue("device_id"), "video_id" to id, "video_id_type" to "0",
+            "device_level" to "1", "need_all_video_definition" to "1", "need_mp4_align" to "0",
+            "use_os_player" to "0", "video_platform" to "1024", "source" to "0",
+            "from_video_id" to "", "_rticket" to now.toString())
+        val url = "https://api5-normal-sinfonlineb.fqnovel.com/reading/bookapi/video_tab/multi_video_model/v1/"
+            .toHttpUrl().newBuilder().apply { query.forEach { (key, value) -> addQueryParameter(key, value) } }.build()
+        val signed = signer.sign(url.toString(), null, device)
+        val request = Request.Builder().url(signed.url).get()
+            .header("User-Agent", "com.phoenix.read/73932 (Linux; U; Android 12; zh_CN_#Hans; PGT-AN10; Build/V417IR;tt-ok/3.12.13.20)")
+            .header("Accept", "application/json")
+        // A bodyless player request carries only V5 signature headers, never POST metadata or cookies.
+        signed.headers.filterKeys { it.lowercase() in setOf("x-khronos", "x-helios", "x-medusa") }
+            .forEach { (key, value) -> request.header(key, value) }
+        return readModel(request.build(), id, http)
+    }
+
+    private fun playerModel(id: String, device: Map<String, String>, http: OkHttpClient,
+                            signer: MobilePlaybackSigner, now: Long): JSONObject {
         val query = linkedMapOf("aid" to "8662", "app_name" to "novelread", "version_code" to "74332",
             "version_name" to "7.4.3.32", "channel" to "vivo_8662_64", "device_platform" to "android",
             "device_type" to "PGT-AN10", "os_version" to "12", "update_version_code" to "74332",
@@ -59,7 +93,12 @@ internal object MobilePlayback {
         request.header("Content-Encoding", "gzip").header("x-ss-stub", digest("MD5", bytes).hex().uppercase())
             .post(bytes.toRequestBody("application/json; charset=utf-8".toMediaType()))
         RequestScope.ensureActive()
-        return RequestScope.execute(anonymousHttp(http).newCall(request.build())) { response ->
+        return readModel(request.build(), id, http)
+    }
+
+    private fun readModel(request: Request, id: String, http: OkHttpClient): JSONObject {
+        RequestScope.ensureActive()
+        return RequestScope.execute(anonymousHttp(http).newCall(request)) { response ->
             if (!response.isSuccessful) throw PlaybackSourceException(PlaybackSourceException.Reason.HTTP_REJECTED, response.code)
             val text = boundedText(response, 2 * 1024 * 1024L)
             if (text.isBlank()) throw EmptyPlaybackResponseException()

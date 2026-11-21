@@ -10,7 +10,6 @@ import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import okhttp3.*
 import okhttp3.ResponseBody.Companion.toResponseBody
-import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -112,12 +111,13 @@ class MainCompletionIntegrationTest {
                         .body("""{"device_id":"1234567890123456","install_id":"1234567890123457"}""".toResponseBody()).build()
                 }
                 requests++
-                assertEquals("/novel/player/multi_video_model/player/v1",request.url.encodedPath)
-                assertEquals("gzip",request.header("Content-Encoding"))
-                val body = okio.Buffer()
-                request.body!!.writeTo(body)
-                val json=java.util.zip.GZIPInputStream(body.inputStream()).reader().use { it.readText() }
-                val id = JSONObject(json).getJSONObject("mixed_video_id_map").getJSONArray("1004").getString(0)
+                assertEquals("GET",request.method)
+                assertEquals("/reading/bookapi/video_tab/multi_video_model/v1/",request.url.encodedPath)
+                assertNull(request.body)
+                for (header in listOf("Cookie", "Content-Type", "Content-Encoding", "x-ss-stub"))
+                    assertNull(request.header(header))
+                assertEquals("1",request.url.queryParameter("device_level"))
+                val id = checkNotNull(request.url.queryParameter("video_id"))
                 val raw = """{"data":{"$id":{"video_model":{"video_list":[{"main_url":"https://example.com/video","video_meta":{"codec_type":"bvc2","width":720,"height":1280},"encrypt_info":{"encrypt":false}}]}}}}"""
                 Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200).message("fixture")
                     .body(raw.toResponseBody()).build()

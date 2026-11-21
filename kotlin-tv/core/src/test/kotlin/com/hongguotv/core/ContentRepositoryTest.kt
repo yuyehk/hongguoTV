@@ -42,24 +42,25 @@ class ContentRepositoryTest {
         assertEquals("720P",repo.stream("123",720).quality)
     }
 
-    @Test fun playerRequestCarriesGzipPayloadAndRegisteredAnonymousIdentity() {
+    @Test fun videoTabGetCarriesRegisteredAnonymousIdentityAndTvParameters() {
         var requests=0
         val repo=repository { request ->
             requests++
             if(request.url.host=="example.com") {
                 """{"video_info":{"data":{"video_list":{"v":{"main_url":"https://example.com/video","height":720}}}}}"""
             } else {
-                assertEquals("/novel/player/multi_video_model/player/v1",request.url.encodedPath)
+                assertEquals("GET",request.method)
+                assertEquals("/reading/bookapi/video_tab/multi_video_model/v1/",request.url.encodedPath)
                 assertEquals("1234567890123456",request.url.queryParameter("device_id"))
                 assertEquals("1234567890123457",request.url.queryParameter("iid"))
-                assertEquals("gzip",request.header("Content-Encoding"))
-                assertNotNull(request.header("x-medusa"))
-                val bytes=okio.Buffer(); request.body!!.writeTo(bytes)
-                val payload=JSONObject(java.util.zip.GZIPInputStream(bytes.inputStream()).reader().readText())
-                assertEquals(1,payload.getJSONObject("biz_param").getInt("device_level"))
-                assertEquals(1024,payload.getJSONObject("biz_param").getInt("video_platform"))
-                assertTrue(payload.getJSONObject("biz_param").getBoolean("need_all_video_definition"))
-                assertEquals("123",payload.getJSONObject("mixed_video_id_map").getJSONArray("1004").getString(0))
+                for(header in listOf("x-khronos","x-helios","x-medusa")) assertNotNull(request.header(header))
+                for(header in listOf("Cookie","Cookie2","Content-Type","Content-Encoding","x-ss-stub","x-ss-req-ticket"))
+                    assertNull(request.header(header))
+                assertNull(request.body)
+                assertEquals("1",request.url.queryParameter("device_level"))
+                assertEquals("1024",request.url.queryParameter("video_platform"))
+                assertEquals("1",request.url.queryParameter("need_all_video_definition"))
+                assertEquals("123",request.url.queryParameter("video_id"))
                 val model=JSONObject().put("fallback_api","https://example.com/info").toString()
                 JSONObject().put("code",0).put("data",JSONObject().put("123",JSONObject().put("video_model",model))).toString()
             }

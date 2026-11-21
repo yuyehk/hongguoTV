@@ -5,6 +5,7 @@
 // Local isolation: renamed symbols/fixtures; v5 defaults; BC Base64 for Android 6.
 // Kotlin port of drpys 22261adfa31435e3b3ef5a730b8a2a75bcaf1715; GPL-3.0-only.
 // Only hash branch 0 is emitted: adjust the request ticket before signing.
+// V5 bodyless MD5 semantics follow jackotom/hongguo-drama 92df757.
 package com.hongguotv.core
 
 import java.io.ByteArrayOutputStream
@@ -91,7 +92,8 @@ internal class MobileV5Signer(
         getIv(getIv(getIv(0x20230928, query), body), le32(ts))
 
     fun branch(query: String, body: ByteArray?, ts: Int): Int =
-        (iv(sm3(query.toByteArray()), body?.let { digest("MD5", it) } ?: ByteArray(16), ts) and 15)
+        (iv(sm3(query.toByteArray()), body?.let { digest("MD5", it) }
+            ?: if (mobileV5) digest("MD5", byteArrayOf()) else ByteArray(16), ts) and 15)
             .let { if (mobileV5) { if (it == 12) 0 else 1 } else it % 3 }
 
     private fun sumMd5(data: ByteArray): Int {
@@ -376,7 +378,7 @@ internal class MobileV5Signer(
 
     private fun medusaV5(url: String, body: ByteArray?, ts: Int, who: Map<String, String>): String {
         val query = sm3(url.substringAfter('?').toByteArray(Charsets.UTF_8))
-        val f13 = hashF13(query, body?.let { digest("MD5", it) } ?: ByteArray(16), ts)
+        val f13 = hashF13(query, digest("MD5", body ?: byteArrayOf()), ts)
         val flags = ByteArray(8)
         val version = who.getValue("version_name")
         val deviceInfo = proto(

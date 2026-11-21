@@ -109,7 +109,9 @@ jobs:
           cd release-output
           sha256sum "$APK_NAME" "hongguotv-$VERSION_NAME-source.zip" build-verification.json > SHA256SUMS
           printf '%s\n' "Android 14 定制版 $VERSION_NAME" '' > NOTES.md
-          if [[ "$VERSION_NAME" == '0.11.13-android14-transitions' ]]; then
+          if [[ "$VERSION_NAME" == '0.11.14-android14-transitions' ]]; then
+            printf '%s\n' '移植上游 video_tab 播放修复，解决旧取流接口返回空响应的问题。保留原生 Media3 播放、换集预加载、账号和观看记录，以及启动自动检查和手动检查更新。使用原证书覆盖升级。' '' '已验证目标第 1、2 集真实媒体取流；电视整集播放和自动连播由用户在线更新后实测。' '' >> NOTES.md
+          elif [[ "$VERSION_NAME" == '0.11.13-android14-transitions' ]]; then
             printf '%s\n' '恢复启动自动检查、工具菜单手动检查和更新记录；修复版使用旧版更新器兼容的资产名称与递增版本号，支持原证书覆盖安装。包含已线下验证的原生播放修复，保留账号、观看记录及换集预加载。' '' >> NOTES.md
           elif [[ "$VERSION_NAME" == '0.11.11-android14-transitions' ]]; then
             printf '%s\n' '原生取流返回空响应时，自动在红果 TV 的同一个播放页打开内嵌官网播放器，继续播放当前集。方向键移动光标，确认键点击，返回键回到红果 TV 原生页面。' '' >> NOTES.md

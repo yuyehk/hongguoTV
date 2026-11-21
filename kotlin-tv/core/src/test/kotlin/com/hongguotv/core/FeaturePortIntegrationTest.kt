@@ -45,16 +45,16 @@ class FeaturePortIntegrationTest {
         }
         assertEquals(2,requests.size)
         requests.forEach { request ->
-            assertEquals("/novel/player/multi_video_model/player/v1",request.url.encodedPath)
+            assertEquals("GET",request.method)
+            assertEquals("/reading/bookapi/video_tab/multi_video_model/v1/",request.url.encodedPath)
             assertEquals("1234567890123456789",request.url.queryParameter("device_id"))
             assertEquals("2234567890123456789",request.url.queryParameter("iid"))
             for(header in listOf("x-khronos","x-helios","x-medusa")) assertNotNull(request.header(header))
-            assertNull(request.header("Cookie"))
-            assertEquals("gzip",request.header("Content-Encoding"))
-            val bytes=okio.Buffer().also { request.body!!.writeTo(it) }.readByteArray()
-            val payload=JSONObject(java.util.zip.GZIPInputStream(bytes.inputStream()).reader(Charsets.UTF_8).use { it.readText() })
-            assertEquals(1,payload.getJSONObject("biz_param").getInt("device_level"))
-            assertEquals("123",payload.getJSONObject("mixed_video_id_map").getJSONArray("1004").getString(0))
+            for(header in listOf("Cookie","Cookie2","Content-Type","Content-Encoding","x-ss-stub","x-ss-req-ticket"))
+                assertNull(request.header(header))
+            assertNull(request.body)
+            assertEquals("1",request.url.queryParameter("device_level"))
+            assertEquals("123",request.url.queryParameter("video_id"))
         }
         assertEquals(requests[0].url.queryParameter("device_id"),requests[1].url.queryParameter("device_id"))
         assertEquals(original,VendorConstants.device)

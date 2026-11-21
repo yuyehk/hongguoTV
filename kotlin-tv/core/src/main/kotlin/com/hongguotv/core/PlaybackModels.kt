@@ -35,7 +35,7 @@ internal object PlaybackModels {
     }
 
     fun model(data: JSONObject, id: String): JSONObject? {
-        val entries = data.optJSONObject("1004") ?: data
+        val entries = data.optJSONObject("1004") ?: data.optJSONObject("video_model_data") ?: data
         // A direct video_model has no verifiable episode identity and is not accepted here.
         return objectValue(objectValue(entries.opt(id))?.opt("video_model"))
     }

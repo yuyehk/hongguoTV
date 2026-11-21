@@ -39,6 +39,7 @@ class PlaybackTransportRegressionTest {
 
     @Test fun gzipContractAndCompressedBodySignatureAreConsistent() {
         val http = client { request ->
+            if (request.method == "GET") return@client 200 to ""
             assertEquals("/novel/player/multi_video_model/player/v1", request.url.encodedPath)
             assertEquals("22", request.url.queryParameter("device_id"))
             assertEquals("gzip", request.header("Content-Encoding"))
@@ -118,7 +119,7 @@ class PlaybackTransportRegressionTest {
             else { requests.incrementAndGet(); 200 to "" }
         }, { 1000 }, signer)
         assertThrows(EmptyPlaybackResponseException::class.java) { session.model("123") }
-        assertEquals(2, registers.get()); assertEquals(2, requests.get())
+        assertEquals(2, registers.get()); assertEquals(4, requests.get())
         assertThrows(IOException::class.java) { session.model("123") }
         assertEquals(2, registers.get())
     }
@@ -193,7 +194,7 @@ class PlaybackTransportRegressionTest {
         assertThrows(IOException::class.java) { session.model("123") }
         assertThrows(IOException::class.java) { session.model("123") }
         assertEquals(2, registers.get())
-        assertEquals(listOf("1", "1"), deviceIds)
+        assertEquals(listOf("1", "1", "1", "1"), deviceIds)
         now += 30_000
         assertThrows(EmptyPlaybackResponseException::class.java) { session.model("123") }
         assertEquals(3, registers.get())
@@ -219,9 +220,9 @@ class PlaybackTransportRegressionTest {
             }
         }, { 1000 }, signer)
         assertThrows(EmptyPlaybackResponseException::class.java) { session.ladder("123", allowIdentityRecovery = false) }
-        assertEquals(1, registers.get()); assertEquals(1, requests.get())
+        assertEquals(1, registers.get()); assertEquals(2, requests.get())
         assertEquals(1, session.ladder("123").renditions.size)
-        assertEquals(2, registers.get()); assertEquals(3, requests.get())
+        assertEquals(2, registers.get()); assertEquals(5, requests.get())
     }
 
     @Test fun successfulRecoveryIsRateLimitedFromItsStartAndCanRecoverAfterThirtySeconds() {

@@ -1,5 +1,12 @@
 # 原生版第三方声明
 
+2026-11-21 播放修复参考 jackotom/hongguo-drama（GPL-3.0-only），固定提交
+`92df757ed7be8ea658ee274a6a429b77f49e54e8` 的 `src/native/app-source.js` 与
+`src/native/playback-v5.js`：https://github.com/jackotom/hongguo-drama/commit/92df757ed7be8ea658ee274a6a429b77f49e54e8 。
+移植 video_tab 无正文 GET 请求、V5 空正文摘要和按精确分集解析的新容器；保留本项目电视档位、
+匿名内存会话、取消机制、预加载及账号/记录存储。GET 优先策略同时参考 tsukiyo-zero/hongguoTV
+`d804109cb34448abfbed5d404a59ff68300181b4`；没有移植其宽松分集回退。
+
 播放五头签名参考 jycao2/hongguoTV 的 13aa8e7 提交（GPL-3.0-only），算法源自
 LanZhan-Harmony/PhoenixReadApi 的 SignPlayer（Copyright (c) 2026 LanZhan，MIT）。
 完整 MIT 声明位于 app/src/main/assets/licenses/PhoenixReadApi-MIT.txt，并随 APK 打包。
