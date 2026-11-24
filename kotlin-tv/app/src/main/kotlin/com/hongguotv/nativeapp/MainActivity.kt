@@ -7,6 +7,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -373,6 +374,8 @@ class MainActivity : Activity() {
             minHeight = dp(42)
             if (selected) setTextColor(accent)
             focusStyle(this, selected)
+            // Touch should activate on the first tap; DPAD focus remains available.
+            isFocusableInTouchMode = false
             setOnClickListener { onClick() }
         }
 
@@ -2759,6 +2762,12 @@ class MainActivity : Activity() {
             val view=PlayerView(this).apply {
                 useController=false; resizeMode=frameResizeMode(); isFocusable=false
                 setKeepContentOnPlayerReset(true); setShutterBackgroundColor(Color.BLACK); setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                contentDescription = "显示或收起播放菜单"
+                setOnClickListener {
+                    if (!playError && episodePanel == null && speedDialog == null) {
+                        if (panel) hidePlaybackOverlay() else showPanel()
+                    }
+                }
             }
             playerView=view; root.addView(view,FrameLayout.LayoutParams(-1,-1)); social.attach(root)
             bufferingRate = text("", 15f, Color.WHITE).apply {
@@ -2773,7 +2782,10 @@ class MainActivity : Activity() {
             playbackTitle=text("",23f,Color.WHITE).apply { maxLines=1; ellipsize=TextUtils.TruncateAt.END; setTypeface(null,Typeface.BOLD) }; hud.addView(playbackTitle)
             playbackText=text("",15f,Color.LTGRAY).apply { setPadding(0,dp(10),0,dp(9)) }; hud.addView(playbackText)
             progressBar=ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal).apply { max=1000; progressTintList=android.content.res.ColorStateList.valueOf(accent); progressBackgroundTintList=android.content.res.ColorStateList.valueOf(surface) }; hud.addView(progressBar,lp(-1,dp(4)))
-            hud.addView(text("确认 暂停/播放    左右 快退/快进    ↓ 选集    ↑ 更多    返回 收起 / 退出",13f,Color.LTGRAY).apply { setPadding(0,dp(12),0,0) })
+            val playbackHint = if (resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK == Configuration.UI_MODE_TYPE_TELEVISION)
+                "确认 暂停/播放    左右 快退/快进    ↓ 选集    ↑ 更多    返回 收起 / 退出"
+            else "点按画面打开菜单 · 再点画面或「收起」关闭 · 菜单可左右滑动"
+            hud.addView(text(playbackHint,13f,Color.LTGRAY).apply { setPadding(0,dp(12),0,0) })
             controls=column().apply { setPadding(0,dp(12),0,0); visibility=View.GONE }; hud.addView(controls)
             root.addView(ScrollView(this).apply { isVerticalScrollBarEnabled=false; addView(hud) },FrameLayout.LayoutParams(-1,-2,Gravity.BOTTOM))
         }
@@ -3401,14 +3413,23 @@ class MainActivity : Activity() {
         showHud()
     }
 
+    private fun playbackControlRow(topPadding: Int = 0): LinearLayout {
+        val buttons = row().apply { setPadding(0, dp(topPadding), 0, 0) }
+        controls.addView(HorizontalScrollView(this).apply {
+            isFocusable = false
+            isHorizontalScrollBarEnabled = true
+            addView(buttons, FrameLayout.LayoutParams(-2, -2))
+        }, lp(-1, -2))
+        return buttons
+    }
+
     private fun showPanel() {
         if (playError) return
         panel = true
         showHud()
         controls.visibility = View.VISIBLE
         controls.removeAllViews()
-        val transport = row()
-        controls.addView(transport)
+        val transport = playbackControlRow()
         val play =
             addButton(transport, if (player?.playWhenReady == true) "暂停" else "播放") {
                     togglePlayback()
@@ -3429,11 +3450,15 @@ class MainActivity : Activity() {
                 isFocusable = enabled
                 alpha = if (enabled) 1f else .4f
             }
-        val options = row().apply { setPadding(0, dp(8), 0, 0) }
-        controls.addView(options)
+        addButton(transport, "收起") { hidePlaybackOverlay() }
+        val options = playbackControlRow(8)
         addButton(options, "本剧工具") { detail?.series?.let { featureTools.showSeries(it) } }
         lateinit var episodes: TextView
         episodes = addButton(options, "选集") { showEpisodePanel(episodes) }
+        lateinit var speed: TextView
+        speed = addButton(options, "倍速 ${PlaybackSpeed.label(library.playbackSpeed)}") {
+            showSpeedPicker(speed)
+        }
         lateinit var commentsButton: TextView
         commentsButton = addButton(options, "评论") { social.showComments(commentsButton) }
         lateinit var danmakuButton: TextView

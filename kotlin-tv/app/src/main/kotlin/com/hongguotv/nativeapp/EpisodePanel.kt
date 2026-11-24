@@ -43,7 +43,7 @@ class EpisodePanel(
             gravity = Gravity.CENTER
             minHeight = dp(46)
             isFocusable = true
-            isFocusableInTouchMode = true
+            isFocusableInTouchMode = false
             fun paint(focus: Boolean) {
                 background =
                     GradientDrawable().apply {
