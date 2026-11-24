@@ -417,6 +417,26 @@ internal class MobileV5Signer(
         return (prefix + byteArrayOf(nonce.toByte(), (nonce ushr 8).toByte(), 0, 1) + encrypted).base64()
     }
 
+    /** Seal an independently assembled, device-bound SDK proof without changing legacy signing. */
+    fun sealSdk(message: ByteArray, query: ByteArray, proof: ByteArray, ts: Int,
+        flags: ByteArray, nonce: Int, frameNonce: Int): String {
+        require(mobileV5 && message.size in 229..1_048_576 && query.size == 32 && proof.size == 20 && flags.size == 8)
+        val key = MobileV5Constants.signKey
+        val hash = sm3(key + le32(nonce) + key)
+        val high = (nonce ushr 16) and 255
+        val mask = le32((((high shl 11) or (nonce ushr 24)) xor (high ushr 5) xor high).inv())
+        val transformed = (flags + xmxor(message, hash)).reversedArray()
+        for (i in transformed.indices) transformed[i] = (transformed[i].u() xor mask[i.inv() and 3].u()).toByte()
+        val check = 0x18000001 or ((query[0].u() and 63) shl 14) or ((proof[0].u() and 63) shl 8)
+        val packed = byteArrayOf(0xca.toByte()) + le32(frameNonce) + le32(check) + transformed +
+            byteArrayOf((nonce ushr 16).toByte(), (nonce ushr 24).toByte())
+        val encrypted = MobileV5Carrier(digest("MD5", key.copyOfRange(0, 16)), ts, v5 = true)
+            .encrypt(packed, digest("MD5", key.copyOfRange(16, 32)))
+        val prefix = le32(5) + MobileV5Constants.magic
+        for (i in prefix.indices) prefix[i] = (prefix[i].u() xor le32(ts)[i and 3].u()).toByte()
+        return (prefix + byteArrayOf(nonce.toByte(), (nonce ushr 8).toByte(), 0, 1) + encrypted).base64()
+    }
+
     fun helios(ts: Int): String {
         val random = rand()
         val ascii = digest("MD5", le32(random) + "8662".toByteArray()).hex().toByteArray()

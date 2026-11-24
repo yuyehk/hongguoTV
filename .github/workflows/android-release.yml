@@ -126,7 +126,9 @@ jobs:
           cd release-output
           sha256sum "$APK_NAME" "hongguotv-$VERSION_NAME-source.zip" build-verification.json > SHA256SUMS
           printf '%s\n' "Android 14 定制版 $VERSION_NAME" '' > NOTES.md
-          if [[ "$VERSION_NAME" == '0.11.16-android14-transitions' ]]; then
+          if [[ "$VERSION_NAME" == '0.11.17-android14-transitions' ]]; then
+            printf '%s\n' '修复播放接口再次返回空响应的问题：新增纯 Kotlin 匿名 SDK 会话握手，在原取流有限恢复仍为空时启用，并供后续换集和预加载复用。保留原生 Media3 播放、手机触摸菜单与电视遥控、账号和原有观看记录，以及启动自动检查和手动检查更新。使用原包名和原证书覆盖升级。' '' '本地真实正片、自然连播及验证限制见源码中的 kotlin-tv/PLAYBACK_SDK_2026_11_24.md。小米 S85 现场网络、账号和历史保留状态以电视实测为准。' '' >> NOTES.md
+          elif [[ "$VERSION_NAME" == '0.11.16-android14-transitions' ]]; then
             printf '%s\n' '修复手机触摸播放菜单：点按画面显示或收起菜单，选集和按钮单次点击生效，新增直接倍速入口，窄屏菜单支持左右滑动。保留电视遥控器操作、原生 Media3 播放、换集预加载、账号、观看记录和在线更新。使用原证书覆盖升级。' '' '验证范围和结果见源码中的 kotlin-tv/MOBILE_CONTROLS_2026_11_24.md。' '' >> NOTES.md
           elif [[ "$VERSION_NAME" == '0.11.15-android14-transitions' ]]; then
             printf '%s\n' '移植上游纯 Kotlin 播放签名与 App 取流请求修复，处理播放接口空响应和不兼容编码回退。保留原生 Media3 播放、换集预加载、画面衔接、账号和观看记录，以及启动自动检查和手动检查更新。使用原证书覆盖升级。' '' '具体本地验证结果及限制见源码中的 kotlin-tv/PLAYBACK_FIX_2026_11_24.md；小米 S85 整集播放、自动连播及账号记录保留由用户在线更新后实测。' '' >> NOTES.md

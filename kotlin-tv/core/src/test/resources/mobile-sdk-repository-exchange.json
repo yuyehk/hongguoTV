@@ -1,0 +1,15 @@
+{
+  "sourceCommit": "ea5a852f65acdc4c5b11265ca13b03d115096dc7",
+  "sourceSha256": "d80a5d15b33a92a08eb97c112c19b5342384275badd922833231fa8335ff54e3",
+  "note": "Offline synthetic tokens, encrypted with public app protocol materials. No user/device/session data.",
+  "responses": [
+    {
+      "status": 202,
+      "packet": "08a48c90810410023240789b7a81b6106849e0d5673766a4386d94db99f64348af983902b92dcc6922a7869f6fbc76dfe2e3556d1284c5e913d86a9b5aa7fd180bb2496f59820e3cbe5b"
+    },
+    {
+      "status": 200,
+      "packet": "08a48c90810410023240696d94accacc3bca38b911bbf711678e572cf3a224b1e0d5fe9909a58c923bdc244858c879193bc13f0720fd614f11457a28dca3c70023c6c3b5495d22a5ade3"
+    }
+  ]
+}

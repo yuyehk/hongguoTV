@@ -167,6 +167,8 @@ class ContentRepository(
 ) {
     private val signer = Signer()
     private val playbackSession = PlaybackSession(http, clock)
+    private val sdkPlaybackSession by lazy { MobileSdkPlaybackSession(http, clock) }
+    @Volatile private var sdkPlaybackPreferred = false
 
     // 榜单页偶发被 CDN 软拦截（空响应或挂起到超时）：收紧超时并单次重试，
     // 让整榜失败在最坏约 15 秒内暴露，而不是分钟级的全局超时。
@@ -672,9 +674,26 @@ class ContentRepository(
         else info
     }
 
-    /** Anonymous v5 protocol; retain legacy media parsing for older fallback models. */
+    /** Recover an empty direct model through our own anonymous SDK session, then reuse it. */
+    private fun playbackModel(id: String, allowIdentityRecovery: Boolean): JSONObject {
+        if (sdkPlaybackPreferred) return MobilePlayback.compatibleModel(sdkPlaybackSession.model(id, allowIdentityRecovery), http)
+        return try {
+            playbackSession.model(id, allowIdentityRecovery)
+        } catch (empty: EmptyPlaybackResponseException) {
+            RequestScope.ensureActive()
+            // Speculative preload may use an established SDK session, but cannot start a new recovery.
+            if (!allowIdentityRecovery || !MobileSdkSigner.acceptsEpisodeId(id)) throw empty
+            val model = sdkPlaybackSession.model(id, allowIdentityRecovery)
+            // A valid SDK model selects the source even when this episode has no supported codec;
+            // auto-skip must be able to fetch the following episode without re-entering legacy cooldown.
+            sdkPlaybackPreferred = true
+            MobilePlayback.compatibleModel(model, http)
+        }
+    }
+
+    /** Anonymous playback protocols; retain legacy media parsing for older fallback models. */
     fun streamLadder(id: String, allowIdentityRecovery: Boolean = true): StreamLadder {
-        val model = playbackSession.model(id, allowIdentityRecovery)
+        val model = playbackModel(id, allowIdentityRecovery)
         val current = PlaybackModels.renditions(model)
         if (current.isNotEmpty()) return StreamLadder(current)
         // The current model already carries plain media URLs, dimensions and CENC keys.

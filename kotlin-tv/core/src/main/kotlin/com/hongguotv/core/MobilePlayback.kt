@@ -130,7 +130,7 @@ internal object MobilePlayback {
     }
 
     /** Negotiate only on the exact model-provided VOD URL, without forwarding model/account headers. */
-    private fun compatibleModel(model: JSONObject, http: OkHttpClient): JSONObject {
+    internal fun compatibleModel(model: JSONObject, http: OkHttpClient): JSONObject {
         if (PlaybackModels.renditions(model).isNotEmpty()) return model
         // URL-only legacy models retain ContentRepository's original authorized-URL recovery.
         if (!model.has("video_list")) return model

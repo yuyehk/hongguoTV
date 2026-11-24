@@ -48,3 +48,14 @@ LanZhan-Harmony/PhoenixReadApi 的 SignPlayer（Copyright (c) 2026 LanZhan，MIT
 - JUnit（仅测试）：https://github.com/junit-team/junit4 — EPL-1.0
 
 应用图标和 TV banner 沿用本仓库素材。这里的应用不是内容平台官方客户端。
+
+2026-11-24 SDK 会话播放恢复参考 jackotom/hongguo-drama（GPL-3.0-only）固定提交
+`ea5a852f65acdc4c5b11265ca13b03d115096dc7`：
+https://github.com/jackotom/hongguo-drama/commit/ea5a852f65acdc4c5b11265ca13b03d115096dc7 。
+参考 `scripts/sdk-playback/resolve_cli.py` 及 `scripts/sdk-playback/vendor/phone_account/`
+中的匿名设备注册、SDI 会话交换、V5 签名封装与播放请求；对应源码来源链见该目录的
+`SOURCE.md`，其固定子集来源为 waligoraamodio288-rgb/hongguo-desktop-releases
+v1.0.104 的对应第三方源码归档。
+本项目将上述协议移植为纯 Kotlin，复用已有的 V5 摘要实现与公开协议常量，增加严格分集匹配、
+请求大小和重试边界、取消处理及离线互操作向量。APK 不包含上游桌面执行文件、Python、Unicorn
+或原应用的 SDK 二进制，运行时不下载 SDK；匿名注册身份、Cookie 和会话令牌与用户账号隔离并仅存内存。
