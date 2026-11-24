@@ -177,20 +177,22 @@ class UpstreamContentRepositoryTest {
         }
         assertEquals(2, requests.size)
         for (request in requests) {
-            assertEquals("GET", request.method)
+            assertEquals("POST", request.method)
             for (header in listOf("x-khronos", "x-helios", "x-medusa")) assertNotNull(request.header(header))
-            for (header in listOf("x-gorgon", "x-argus", "x-ladon", "Cookie", "Cookie2", "Content-Type",
-                "Content-Encoding", "x-ss-stub", "x-ss-req-ticket")) assertNull(request.header(header))
-            assertEquals("/reading/bookapi/video_tab/multi_video_model/v1/", request.url.encodedPath)
+            for (header in listOf("x-gorgon", "x-argus", "x-ladon", "Cookie", "Cookie2", "x-ss-req-ticket")) assertNull(request.header(header))
+            assertEquals("/novel/player/multi_video_model/preload/v1", request.url.encodedPath)
             val expected = mapOf("iid" to "2234567890123456789", "device_id" to "1234567890123456789")
             for ((key, registered) in expected) {
                 val value=request.url.queryParameter(key)!!
                 assertEquals(registered, value)
                 assertEquals(requests.first().url.queryParameter(key),value)
             }
-            assertNull(request.body)
-            assertEquals("1", request.url.queryParameter("device_level"))
-            assertEquals("123", request.url.queryParameter("video_id"))
+            assertEquals("gzip", request.header("Content-Encoding"))
+            val bytes = okio.Buffer().also { request.body!!.writeTo(it) }.readByteArray()
+            assertEquals(digest("MD5", bytes).hex().uppercase(), request.header("x-ss-stub"))
+            val payload = JSONObject(java.util.zip.GZIPInputStream(bytes.inputStream()).reader().readText())
+            assertEquals(2, payload.getJSONObject("biz_param").getInt("device_level"))
+            assertEquals("123", payload.getJSONObject("mixed_video_id_map").getJSONArray("1004").getString(0))
         }
         assertEquals(original, VendorConstants.device)
     }

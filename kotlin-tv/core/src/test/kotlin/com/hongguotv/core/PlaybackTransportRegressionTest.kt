@@ -40,14 +40,15 @@ class PlaybackTransportRegressionTest {
     @Test fun gzipContractAndCompressedBodySignatureAreConsistent() {
         val http = client { request ->
             if (request.method == "GET") return@client 200 to ""
-            assertEquals("/novel/player/multi_video_model/player/v1", request.url.encodedPath)
+            assertEquals("/novel/player/multi_video_model/preload/v1", request.url.encodedPath)
             assertEquals("22", request.url.queryParameter("device_id"))
             assertEquals("gzip", request.header("Content-Encoding"))
             assertEquals("POST", request.method)
             val buffer = Buffer(); request.body!!.writeTo(buffer); val bytes = buffer.readByteArray()
             assertEquals(digest("MD5", bytes).hex().uppercase(), request.header("x-ss-stub"))
             val json = JSONObject(GZIPInputStream(bytes.inputStream()).reader().readText())
-            assertEquals(1, json.getJSONObject("biz_param").getInt("device_level"))
+            assertEquals(2, json.getJSONObject("biz_param").getInt("device_level"))
+            assertEquals("preload", json.getString("dr_scene"))
             assertEquals("123", json.getJSONObject("mixed_video_id_map").getJSONArray("1004").getString(0))
             200 to responseModel()
         }

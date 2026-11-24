@@ -8,10 +8,24 @@ package com.hongguotv.core
 
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 
 class MobileV5SignerTest {
+    @Test fun matchesIndependentCurrentPlaybackField21WireVector() {
+        val fixture = JSONObject(javaClass.getResource("/mobile-v5-playback-312.json")!!.readText())
+        val values = fixture.getJSONObject("identity")
+        val order = fixture.getJSONArray("queryOrder")
+        val identity = (0 until order.length()).associate { order.getString(it).let { key -> key to values.getString(key) } }
+        val signer = MobileV5Signer({ 1800000000000 }, identity, { 0.5 }, "synthetic", mobileV5 = true)
+        val actual = signer.signPlayback("https://example.test/model", identity, decode64(fixture.getString("body")), 1800000000000)
+        assertEquals(fixture.getString("url"), actual.url)
+        val expected = fixture.getJSONObject("headers")
+        assertEquals(expected.keys().asSequence().toSet(), actual.headers.keys)
+        expected.keys().forEach { assertEquals(it, expected.getString(it), actual.headers[it]) }
+    }
+
     @Test fun matchesCarrierVectorsAcrossAllFourTimestampVariants() {
         val rows = JSONArray(javaClass.getResource("/mobile-v5-carrier.json")!!.readText())
         for (i in 0 until rows.length()) {

@@ -55,9 +55,9 @@ class VideoTabPlaybackTest {
 
     @Test fun bodylessMedusaEmbedsTheIndependentEmptyBodyDigest() {
         val medusa = vectorSigner().medusa("$vectorBase?$vectorQuery", null, 1800000000, vectorValues)
-        // Hash of the independent upstream's complete base64 header, not of a locally derived expectation.
-        assertEquals("95dfa35af2886f6a6683173b34bdf1eea36c6f0918e4ef3187fd9d3ec810135a",
-            digest("SHA-256", medusa.toByteArray(Charsets.UTF_8)).hex())
+        // The independent F13 vector above still fixes the empty-body digest. The current
+        // complete envelope (including changed F21) is separately fixed by the 312 wire fixture.
+        assertEquals(vectorSigner().medusa("$vectorBase?$vectorQuery", byteArrayOf(), 1800000000, vectorValues), medusa)
     }
 
     private fun model(url: String = media) = JSONObject().put("video_list", JSONObject().put("720p",
@@ -84,9 +84,9 @@ class VideoTabPlaybackTest {
             if (request.method == "POST") 200 to "" else {
                 assertEquals("api5-normal-sinfonlineb.fqnovel.com", request.url.host)
                 assertEquals("/reading/bookapi/video_tab/multi_video_model/v1/", request.url.encodedPath)
-                val expected = mapOf("aid" to "8662", "app_name" to "novelread", "version_code" to "74332",
-                    "version_name" to "7.4.3.32", "channel" to "vivo_8662_64", "device_platform" to "android",
-                    "device_type" to "PGT-AN10", "os_version" to "12", "update_version_code" to "74332",
+                val expected = mapOf("aid" to "8662", "app_name" to "novelread", "version_code" to "74532",
+                    "version_name" to "7.4.5.32", "channel" to "update_64", "device_platform" to "android",
+                    "device_type" to "25053RT47C", "os_version" to "16", "update_version_code" to "74532",
                     "iid" to "11", "device_id" to "22", "cdid" to "test-anonymous", "video_id" to "123",
                     "video_id_type" to "0", "device_level" to "1", "need_all_video_definition" to "1",
                     "need_mp4_align" to "0", "use_os_player" to "0", "video_platform" to "1024",
@@ -99,28 +99,28 @@ class VideoTabPlaybackTest {
                     assertFalse(header, request.header(header).isNullOrBlank())
                 }
                 assertEquals("1800000000", request.header("x-khronos"))
-                assertEquals("application/json", request.header("Accept"))
+                assertEquals("application/json; charset=utf-8", request.header("Accept"))
                 200 to envelope()
             }
         }
         // Exercise the production V5 signer, including its bodyless request path.
         val ladder = MobilePlayback.ladder(id, device, http, MobilePlayback.signer, 1800000000000L)
         assertEquals(media, ladder.select(720)!!.url)
-        assertEquals(listOf("GET"), requests.map { it.method })
+        assertEquals(listOf("POST", "GET"), requests.map { it.method })
     }
 
-    @Test fun anEmptyGetUsesOnePostFallbackWithTheSameIdentity() {
+    @Test fun anEmptyPreloadUsesOneGetFallbackWithTheSameIdentity() {
         val requests = mutableListOf<Request>()
         val http = client { request ->
             requests += request
-            if (request.method == "GET") 200 to "" else 200 to envelope("1004")
+            if (request.method == "POST") 200 to "" else 200 to envelope("1004")
         }
         val ladder = MobilePlayback.ladder(id, device, http, unsigned, 1800000000000L)
         assertEquals(media, ladder.select(720)!!.url)
-        assertEquals(listOf("GET", "POST"), requests.map { it.method })
+        assertEquals(listOf("POST", "GET"), requests.map { it.method })
         assertEquals(listOf("22", "22"), requests.map { it.url.queryParameter("device_id") })
         assertEquals(listOf("11", "11"), requests.map { it.url.queryParameter("iid") })
-        assertEquals("/novel/player/multi_video_model/player/v1", requests.last().url.encodedPath)
+        assertEquals("/reading/bookapi/video_tab/multi_video_model/v1/", requests.last().url.encodedPath)
     }
 
     @Test fun bothResponseContainersSelectOnlyTheRequestedEpisodeForObjectAndStringModels() {
@@ -133,7 +133,7 @@ class VideoTabPlaybackTest {
         }
     }
 
-    @Test fun rejectionMalformedDataAndWrongEpisodeDoNotTriggerPostFallback() {
+    @Test fun rejectionMalformedDataAndWrongEpisodeDoNotTriggerGetFallback() {
         val cases = listOf(
             Triple(403, "", PlaybackSourceException.Reason.HTTP_REJECTED),
             Triple(200, """{"code":100103}""", PlaybackSourceException.Reason.REJECTED),
@@ -147,7 +147,7 @@ class VideoTabPlaybackTest {
                 MobilePlayback.model(id, device, http, unsigned, 1800000000000L)
             }
             assertEquals(reason, error.reason)
-            assertEquals(listOf("GET"), requests.map { it.method })
+            assertEquals(listOf("POST"), requests.map { it.method })
         }
     }
 }

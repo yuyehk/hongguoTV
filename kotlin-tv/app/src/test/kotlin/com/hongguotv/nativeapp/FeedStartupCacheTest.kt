@@ -88,13 +88,25 @@ class FeedStartupCacheTest {
                             when (req.url.encodedPath) {
                                 "/detail" ->
                                     """<script>_ROUTER_DATA={"loaderData":{"detail_page":{"seriesDetail":{"series_id":"101","series_title":"缓存作品","vid_list":["10101","10102"]}}}};</script>"""
-                                "/reading/bookapi/video_tab/multi_video_model/v1/" -> {
-                                    assertEquals("GET", req.method)
-                                    assertNull(req.body)
-                                    for (header in listOf("Cookie", "Content-Type", "Content-Encoding", "x-ss-stub"))
+                                "/novel/player/multi_video_model/preload/v1" -> {
+                                    assertEquals("POST", req.method)
+                                    assertEquals("reading.snssdk.com", req.url.host)
+                                    for (header in listOf("Cookie", "Cookie2"))
                                         assertNull(req.header(header))
-                                    assertEquals("10101", req.url.queryParameter("video_id"))
-                                    assertEquals("1", req.url.queryParameter("device_level"))
+                                    assertEquals("74532", req.url.queryParameter("version_code"))
+                                    assertEquals("7.4.5.32", req.url.queryParameter("version_name"))
+                                    assertEquals("gzip", req.header("Content-Encoding"))
+                                    val buffer = okio.Buffer()
+                                    checkNotNull(req.body).writeTo(buffer)
+                                    val bytes = buffer.readByteArray()
+                                    val stub = java.security.MessageDigest.getInstance("MD5").digest(bytes)
+                                        .joinToString("") { "%02X".format(it.toInt() and 255) }
+                                    assertEquals(stub, req.header("x-ss-stub"))
+                                    val payload = org.json.JSONObject(java.util.zip.GZIPInputStream(bytes.inputStream()).reader().use { it.readText() })
+                                    assertEquals("10101", payload.getJSONObject("mixed_video_id_map").getJSONArray("1004").getString(0))
+                                    assertEquals(2, payload.getJSONObject("biz_param").getInt("device_level"))
+                                    assertEquals(1024, payload.getJSONObject("biz_param").getInt("video_platform"))
+                                    assertEquals("preload", payload.getString("dr_scene"))
                                     """{"data":{"10101":{"video_model":{"video_list":[{"main_url":"https://example.test/video","video_meta":{"definition":"720p","codec_type":"h264","vwidth":720,"vheight":1280},"encrypt_info":{"encrypt":false}}]}}}}"""
                                 }
                                 else -> error("Unexpected request")
@@ -118,7 +130,7 @@ class FeedStartupCacheTest {
                 }
             }
             assertEquals(1, paths.count { it == "/detail" })
-            assertEquals(2, paths.count { it == "/reading/bookapi/video_tab/multi_video_model/v1/" })
+            assertEquals(2, paths.count { it == "/novel/player/multi_video_model/preload/v1" })
             assertEquals(listOf("bytes=0-262143", "bytes=0-262143"), ranges)
             assertEquals(5, paths.size)
         } finally {

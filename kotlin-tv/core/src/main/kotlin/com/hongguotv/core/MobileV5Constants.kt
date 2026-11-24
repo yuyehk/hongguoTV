@@ -8,6 +8,8 @@ package com.hongguotv.core
 
 /** v04.10.03 wire constants; see SIGNING_V5.md for derivation and verification. */
 internal object MobileV5Constants {
+    // Verified V5 wire field from N3urda/hongguoTV ef328f3; not a device or account credential.
+    const val field21 = 312
     val magic = hex("2d4b4fca49750d433fb5ae2c226dcc56")
     const val license = "646637794"
     val signKey = hex("b23c2a470a20d105dc3f8c4438f8272ed46d6c89ffdcdedd5108698d26e9489d")

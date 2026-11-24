@@ -7,6 +7,12 @@
 匿名内存会话、取消机制、预加载及账号/记录存储。GET 优先策略同时参考 tsukiyo-zero/hongguoTV
 `d804109cb34448abfbed5d404a59ff68300181b4`；没有移植其宽松分集回退。
 
+2026-11-24 播放恢复移植自 N3urda/hongguoTV（GPL-3.0-only）
+`ef328f3a3dc28479d90608a507996136672cf946`：
+https://github.com/N3urda/hongguoTV/commit/ef328f3a3dc28479d90608a507996136672cf946 。
+同步纯 Kotlin V5 签名字段 21、当前 App preload 请求，以及 App 模型提供的兼容编码回退。
+保留本项目严格分集匹配、匿名会话、账号/观看记录、Media3 播放与更新器；不包含原生签名 SDK。
+
 播放五头签名参考 jycao2/hongguoTV 的 13aa8e7 提交（GPL-3.0-only），算法源自
 LanZhan-Harmony/PhoenixReadApi 的 SignPlayer（Copyright (c) 2026 LanZhan，MIT）。
 完整 MIT 声明位于 app/src/main/assets/licenses/PhoenixReadApi-MIT.txt，并随 APK 打包。
