@@ -12,6 +12,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.hongguotv.core.ContentRepository
 import com.hongguotv.core.Detail
+import com.hongguotv.core.SleepTimer
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*

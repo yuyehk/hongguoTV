@@ -45,8 +45,18 @@ adb -s emulator-5570 shell am instrument -w -r \
   com.hongguotv.nativeapp.localrecovery01115.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
-实际执行结果以 `files/live-playback-recovery.json` 的 `passed` 和事件记录为准；
-本地模拟器结果不等同小米 S85 实测。用户已指定发布后自行在线更新验收电视。
+2026-11-24 在独立 Android 14 模拟器实际执行通过（`OK (1 test)`，241.989 秒）：
+
+- 原生第 1 集从 00:00 播放，时长 158,918 ms；在 158,959 ms 收到 Media3 自然 `STATE_ENDED`。
+- App 自身片尾逻辑自动将同一 ExoPlayer 切换到第 2 集；继续播放超过 10 秒且仍在播放。
+- 第 1、2 集分别观察到 4,349 / 226 个视频帧回调，本机历史已记录第 2 集及其进度。
+- 未 seek、加速、调用网页或使用测试片源。此次走片尾事件驱动的自动续播，未观察到预排播放列表的无缝切换；保留预加载代码不等于宣称本次已验证无缝衔接。
+- 模拟器首次启动有 System UI 无响应弹窗，选择等待后消失；App 继续播放，未暂停或改动播放进度。
+
+实际事件证据 `files/live-playback-recovery.json` 的 `passed=true`，SHA256 为
+`b2c1b10992b753c3b6b1f6e50eb4592bd6100a25e2b26ae850c480b012957215`。
+本地模拟器结果不等同小米 S85 实测，也不代表电视上既有账号和观看记录已现场核对。
+用户已指定发布后自行在线更新验收电视。
 
 ## 发布及回滚
 
